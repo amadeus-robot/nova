@@ -4,14 +4,12 @@ defmodule Nova.Compiler.CodeGenTest do
   alias Nova.Compiler.Ast
   alias Nova.Compiler.CodeGen
 
-
-
   # ------------------------------------------------------------------
   # Helpers to build simple AST nodes quickly inside each test
   # ------------------------------------------------------------------
   defp lit_num(n), do: %Ast.Literal{type: :number, value: Integer.to_string(n)}
   defp lit_str(s), do: %Ast.Literal{type: :string, value: s}
-  defp id(name),   do: %Ast.Identifier{name: name}
+  defp id(name), do: %Ast.Identifier{name: name}
 
   # ------------------------------------------------------------------
   # Positive ‑ supported constructs
@@ -41,7 +39,7 @@ defmodule Nova.Compiler.CodeGenTest do
 
     test "let‑binding round‑trip" do
       body = %Ast.LetBinding{
-        bindings: [{"x", lit_num(1)},{"y", lit_num(2)}],
+        bindings: [{"x", lit_num(1)}, {"y", lit_num(2)}],
         body: %Ast.BinaryOp{op: "+", left: id("x"), right: id("y")}
       }
 
@@ -88,10 +86,11 @@ defmodule Nova.Compiler.CodeGenTest do
       for expr <- [lam, list, tuple] do
         src = CodeGen.compile_expression(expr)
         {value, _} = Code.eval_string(src, [])
+
         case expr do
           %Ast.Lambda{} -> assert value.(5) == 6
-          %Ast.List{}   -> assert value  == [1,2]
-          %Ast.Tuple{}  -> assert value  == {"a","b"}
+          %Ast.List{} -> assert value == [1, 2]
+          %Ast.Tuple{} -> assert value == {"a", "b"}
         end
       end
     end
@@ -103,6 +102,7 @@ defmodule Nova.Compiler.CodeGenTest do
   describe "unsupported constructs raise clearly" do
     test "unary operator" do
       ast = %Ast.UnaryOp{op: "-", value: lit_num(1)}
+
       assert_raise RuntimeError, ~r/Unsupported expression/, fn ->
         CodeGen.compile_expression(ast)
       end
@@ -110,6 +110,7 @@ defmodule Nova.Compiler.CodeGenTest do
 
     test "do‑block" do
       ast = %Ast.DoBlock{expressions: []}
+
       assert_raise RuntimeError, ~r/Unsupported expression/, fn ->
         CodeGen.compile_expression(ast)
       end
@@ -117,6 +118,7 @@ defmodule Nova.Compiler.CodeGenTest do
 
     test "list comprehension" do
       ast = %Ast.ListComprehension{expression: lit_num(1), generators: [], guards: []}
+
       assert_raise RuntimeError, ~r/Unsupported expression/, fn ->
         CodeGen.compile_expression(ast)
       end
@@ -130,5 +132,4 @@ defmodule Nova.Compiler.CodeGenTest do
     src = CodeGen.compile_expression(lit_num(7))
     assert src == "7"
   end
-
 end

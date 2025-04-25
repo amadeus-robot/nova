@@ -51,6 +51,8 @@ defmodule Nova.Compiler.CodeGen do
   # ─────────────────────────────────────────────────────────────
 
   defp compile_decl(%Ast.FunctionDeclaration{} = fun), do: compile_fun(fun)
+
+  defp compile_decl(%Ast.ForeignImport{} = fi), do: gen_foreign(fi)
   # We ignore type/class declarations for now – they don't have Elixir code‑gen impact
   defp compile_decl(_), do: ""
 
@@ -65,7 +67,8 @@ defmodule Nova.Compiler.CodeGen do
     def #{name}(#{args}) do
     #{body_code}
     end
-    """ |> String.trim()
+    """
+    |> String.trim()
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -119,7 +122,8 @@ defmodule Nova.Compiler.CodeGen do
     #{indent(assigns, 4)}
       #{compile_expr(body)}
     end).()
-    """ |> String.trim()
+    """
+    |> String.trim()
   end
 
   # Case expression
@@ -135,7 +139,8 @@ defmodule Nova.Compiler.CodeGen do
     case #{compile_expr(e)} do
     #{indent(clauses, 2)}
     end
-    """ |> String.trim()
+    """
+    |> String.trim()
   end
 
   # Lists and tuples
@@ -150,13 +155,33 @@ defmodule Nova.Compiler.CodeGen do
   # Fallback
   defp compile_expr(other), do: raise("Unsupported expression in codegen: #{inspect(other)}")
 
+  defp count_params(%Ast.BinaryOp{op: "->", right: r}), do: 1 + count_params(r)
+  defp count_params(_), do: 0
+  # -- foreign import -------------------------------------------------
+  defp gen_foreign(%Ast.ForeignImport{module: mod, function: fun, alias: name, type_signature: ts}) do
+    arity = count_params(ts.type)
+    args = for i <- 1..arity, do: "arg#{i}"
+
+    """
+    # foreign import #{mod}.#{fun}/#{arity}
+    def #{name}(#{Enum.join(args, ", ")}) do
+      apply(:'#{mod}', :'#{String.to_atom(fun)}', [#{Enum.join(args, ", ")}])
+    end
+    """
+  end
+
   # ─────────────────────────────────────────────────────────────
   # Patterns – re‑using expression compiler for now
   # ─────────────────────────────────────────────────────────────
   defp compile_pattern(%Ast.Identifier{name: n}), do: n
   defp compile_pattern(%Ast.Literal{} = lit), do: compile_expr(lit)
-  defp compile_pattern(%Ast.Tuple{elements: es}), do: "{" <> (es |> Enum.map(&compile_pattern/1) |> Enum.join(", ")) <> "}"
-  defp compile_pattern(%Ast.List{elements: es}), do: "[" <> (es |> Enum.map(&compile_pattern/1) |> Enum.join(", ")) <> "]"
+
+  defp compile_pattern(%Ast.Tuple{elements: es}),
+    do: "{" <> (es |> Enum.map(&compile_pattern/1) |> Enum.join(", ")) <> "}"
+
+  defp compile_pattern(%Ast.List{elements: es}),
+    do: "[" <> (es |> Enum.map(&compile_pattern/1) |> Enum.join(", ")) <> "]"
+
   defp compile_pattern(%Ast.FunctionCall{function: f, arguments: a}),
     do: compile_expr(%Ast.FunctionCall{function: f, arguments: a})
 
