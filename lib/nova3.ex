@@ -1,4 +1,4 @@
-defmodule Nova3 do
+defmodule Nova do
   @moduledoc """
   Documentation for `Nova3`.
   """
