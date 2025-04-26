@@ -1,25 +1,132 @@
-# Abstract 
+# Nova Lang 🔥  
+*A purely-functional, statically-typed language for live Erlang/Elixir systems*
 
-Nova is a purely-functional, statically-typed language in the spirit of PureScript, designed for live, incremental development inside long-running Erlang systems.
-Instead of compiling whole programs at once, Nova’s compiler exposes a streaming API: individual type declarations, data definitions, and function bodies are pushed—one by one—into a target namespace. Each submission is parsed, elaborated, and fully Hindley-Milner–type-checked in isolation before it mutates the shared environment. If the declaration passes, it is atomically merged into the namespace and becomes immediately callable from both Nova and Elixir through a lightweight FFI layer; if it fails, the environment remains unchanged and the compiler returns a precise, range-annotated error.
+[![CI](https://github.com/nova-lang/nova/actions/workflows/ci.yml/badge.svg)](https://github.com/nova-lang/nova/actions/workflows/ci.yml)
+[![Hex docs](https://img.shields.io/badge/hex-docs-green)](https://hex.pm/packages/nova_lang)
+[![License](https://img.shields.io/github/license/nova-lang/nova.svg)](LICENSE)
 
-This incremental model enables hot-reloading, REPL-like exploration, and fine-grained rollback in production services while preserving the strong guarantees of static typing. Coupled with Elixir’s concurrency and supervision primitives, Nova aims to bring the safety of a modern ML-style type system to dynamic, continuously running applications without sacrificing the rapid feedback loop developers expect from interactive environments.
+Nova brings ML-style type safety and Hindley–Milner inference to long-running
+BEAM applications **without ever rebooting the VM**.  
+Think *PureScript-level guarantees* combined with *Elixir-grade hot-code
+swapping*.
 
-Embedding Nova’s “one-declaration-at-a-time” workflow inside an AI agent loop unlocks several practical advantages that are hard to achieve with traditional batch compilers.
+---
 
-# Safe autonomous code synthesis and repair
-Modern AI agents frequently generate or mutate code on the fly—whether to fix a failing workflow, extend capabilities, or tailor logic to new data. Nova’s incremental pipeline provides the guardrails they need: every snippet must typecheck against the current namespace before it can be loaded. An agent can therefore prototype, submit, and refine functions iteratively, getting immediate, compiler-level feedback instead of discovering errors later at runtime. The strong static types act as an automated verifier, dramatically reducing the risk that a hallucinated patch will crash the host system or corrupt shared state.
+## Table of Contents
+1. [Key Ideas](#key-ideas)
+2. [Why Incremental Compilation?](#why-incremental-compilation)
+3. [AI-Centric Workflows](#ai-centric-workflows)
+4. [Quick Start](#quick-start)
+5. [FFI with Elixir](#ffi-with-elixir)
+6. [Roadmap](#roadmap)
+7. [Contributing](#contributing)
+8. [License](#license)
 
-# Continual learning without downtime
-Many real-time AI services (speech assistants, recommendation engines, task-oriented bots) benefit from continual improvement—new heuristics, updated feature extractors, ad-hoc business rules—yet can’t afford restarts. Running inside BEAM supervision trees, Nova modules can be hot-reloaded exactly like native Elixir code. An agent observing live metrics can synthesize a refined ranking function, push it, and—once the compiler confirms soundness—swap it into production instantly. This marries the flexibility of dynamic languages with the robustness of statically-typed guarantees.
+---
 
-# Introspectable reasoning and proof of correctness
-Because every accepted declaration is retained in a typed AST, agents can query the compiler for kinds, inferred types, or exhaustiveness of pattern matches, effectively gaining a structured knowledge base describing their own logic. This metadata can feed higher-order reasoning: e.g., “find all functions consuming a UserId and returning an Html snippet” or “prove that no path calls unsafeDecode without prior validation.” Such machine-readable assurances are invaluable when agents must convince humans (or other agents) that a change is safe.
+## Key Ideas
+| Feature | What it means |
+| --- | --- |
+| **Streaming compiler API** | Push type declarations, data definitions, and function bodies *one at a time*. |
+| **H-M type checking per submission** | Each snippet is parsed, elaborated, and fully type-checked *in isolation*. |
+| **Transactional namespaces** | A declaration that fails leaves the environment untouched. |
+| **Hot-reloading** | Accepted declarations become immediately callable from Nova *and* Elixir. |
+| **Typed AST introspection** | Query kinds, inferred types, exhaustiveness proofs, etc., at runtime. |
+| **Lightweight FFI** | Seamless interop with Elixir, Erlang NIFs, Rustler modules, and GPUs. |
 
-# Fine-grained rollback and experimentation
-Nova’s transactional namespace behaves like a versioned knowledge graph: failed submissions leave the environment unchanged, and accepted ones are individually addressable. Agents can run A/B tests by cloning a namespace, injecting alternative implementations, and measuring outcomes under identical traffic—all without recompiling a full service. If a variant underperforms, it can be rolled back by simply discarding that single declaration.
+---
 
-# Seamless bridging to high-performance runtimes
-Finally, the compiler’s foreign-function interface means an agent can generate pure Nova code for the bulk of its logic while still delegating heavy numeric kernels or GPU ops to specialized Elixir/Erlang NIFs or Rustler modules. The tight type harmony across the boundary ensures that values exchanged with native libraries remain consistent—an essential property when autonomous systems juggle tensors, embeddings, and domain objects at scale.
+## Why Incremental Compilation?
+Traditional batch compilers force you to rebuild entire programs for a single
+change—unacceptable in 24 × 7 systems. Nova’s compiler instead acts like a
+*transactional database of code*:
 
-Taken together, Nova supplies AI agents with an interactive yet disciplined coding substrate: rapid iteration, zero-downtime deployment, and mathematically enforced safety—exactly the ingredients needed for reliable self-improving software.
+```text
+┌────────┐    push decl     ┌─────────────┐      merge
+│  IDE / │ ───────────────► │ Nova daemon │ ─────────────► Shared NS
+│  Agent │ ◄─────────────── │  (BEAM)     │ ◄─────────────
+└────────┘    error / ok     └─────────────┘      rollback
+```
+
+*   **Hot-reloading**—new logic is live as soon as it passes the type checker.  
+*   **Fine-grained rollback**—discard only the faulty declaration, not a whole
+    module.  
+*   **REPL-like exploration**—iterate on production code with millisecond
+    feedback.
+
+---
+
+## AI-Centric Workflows
+> Nova was built for autonomous agents that write code.
+
+### 1 · Safe Code Synthesis & Repair
+Every generated snippet must type-check before loading—your agent gets compiler
+feedback *immediately* instead of crashing later.
+
+### 2 · Continual Learning *Without Downtime*
+Update ranking functions, heuristics, or feature extractors on-the-fly while the
+service keeps handling traffic.
+
+### 3 · Introspectable Reasoning
+Query the live typed AST to prove properties like
+“no path calls `unsafeDecode/1` without validation”.
+
+### 4 · Versioned Experimentation
+Clone a namespace, inject a variant implementation, A/B test, discard or adopt—
+all without a full recompilation.
+
+---
+
+## Quick Start
+todo
+
+---
+
+## FFI with Elixir
+Nova ↔ Elixir type mapping:
+
+| Nova | Elixir term |
+| ---- | ----------- |
+| `Int` | `integer()` |
+| `Float` | `float()` |
+| `String` | `binary()` |
+| `List a` | `[a]` |
+| `Maybe a` | `{:just, a} | :nothing` |
+
+Define foreign functions in Elixir:
+
+```elixir
+defmodule MathNative do
+  def add_one(n) when is_integer(n), do: n + 1
+end
+```
+
+and import them in Nova:
+
+```haskell
+foreign import addOne :: Int -> Int
+```
+
+---
+
+## Roadmap
+- [ ] Exhaustiveness checker for pattern matches  
+- [ ] Exhaustive test-suite for type inference edge-cases  
+- [ ] IDE protocol (LSP + incremental diagnostics)  
+- [ ] Native codegen via LLVM / Cranelift  
+
+---
+
+## Contributing
+1. **Fork** the repo and create a branch.  
+2. Run `mix test --include integration`.  
+3. Follow the
+   [contributor guidelines](CONTRIBUTING.md).  
+4. Open a **PR**—someone will review within 48 h.
+
+---
+
+## License
+Nova is released under the **Apache 2.0** license. See [LICENSE](LICENSE) for
+details.
+
