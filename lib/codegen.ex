@@ -14,6 +14,7 @@ defmodule Nova.Compiler.CodeGen do
   """
 
   alias Nova.Compiler.Ast
+  alias Nova.Compiler.Types.TCon
 
   # ─────────────────────────────────────────────────────────────
   # Public API
@@ -82,6 +83,11 @@ defmodule Nova.Compiler.CodeGen do
 
   # Identifier
   defp compile_expr(%Ast.Identifier{name: n}), do: n
+
+  defp compile_expr(%Ast.BinaryOp{op: "++", left: l, right: r}) do
+    operator = if string_typed?(l) or string_typed?(r), do: "<>", else: "++"
+    "#{compile_expr(l)} #{operator} #{compile_expr(r)}"
+  end
 
   # Binary operation
   defp compile_expr(%Ast.BinaryOp{op: op, left: l, right: r}) do
@@ -159,6 +165,15 @@ defmodule Nova.Compiler.CodeGen do
   defp count_params(%Ast.BinaryOp{op: "->", right: r}), do: 1 + count_params(r)
   defp count_params(_), do: 0
 
+  # Detect whether an expression is statically typed as String (literal or inferred)
+  defp string_typed?(%Ast.Literal{type: :string}), do: true
+
+  # Any node carrying `inferred_type` metadata injected by the type‑checker
+  defp string_typed?(%{inferred_type: %TCon{name: :String}}), do: true
+  # safe fallback for other structs
+  defp string_typed?(%{inferred_type: %{name: :String}}), do: true
+  defp string_typed?(_), do: false
+
   # -- foreign import -------------------------------------------------
   defp gen_foreign(%Ast.ForeignImport{module: mod, function: fun, alias: name, type_signature: ts}) do
     arity = count_params(ts.type)
@@ -206,4 +221,3 @@ defmodule Nova.Compiler.CodeGen do
   defp to_elixir_modname(%Ast.Identifier{name: n}), do: n
   defp to_elixir_modname(n) when is_binary(n), do: n
 end
-
