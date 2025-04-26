@@ -23,7 +23,9 @@ defmodule Nova.Compiler.CodeGen do
   Compile a Nova AST module to an Elixir source string.
   """
   @spec compile(Ast.Module.t()) :: String.t()
-  def compile(%Ast.Module{name: name, declarations: decls}) do
+  def compile(%Ast.Module{name: name_ast, declarations: decls}) do
+    mod_name = to_elixir_modname(name_ast)
+
     body =
       decls
       |> Enum.map(&compile_decl/1)
@@ -32,7 +34,7 @@ defmodule Nova.Compiler.CodeGen do
       |> indent(2)
 
     """
-    defmodule #{to_elixir_modname(name)} do
+    defmodule #{mod_name} do
     #{body}
     end
     """
@@ -51,7 +53,6 @@ defmodule Nova.Compiler.CodeGen do
   # ─────────────────────────────────────────────────────────────
 
   defp compile_decl(%Ast.FunctionDeclaration{} = fun), do: compile_fun(fun)
-
   defp compile_decl(%Ast.ForeignImport{} = fi), do: gen_foreign(fi)
   # We ignore type/class declarations for now – they don't have Elixir code‑gen impact
   defp compile_decl(_), do: ""
@@ -157,6 +158,7 @@ defmodule Nova.Compiler.CodeGen do
 
   defp count_params(%Ast.BinaryOp{op: "->", right: r}), do: 1 + count_params(r)
   defp count_params(_), do: 0
+
   # -- foreign import -------------------------------------------------
   defp gen_foreign(%Ast.ForeignImport{module: mod, function: fun, alias: name, type_signature: ts}) do
     arity = count_params(ts.type)
@@ -199,7 +201,9 @@ defmodule Nova.Compiler.CodeGen do
     end)
   end
 
-  # A Nova module name like "Data.List" maps 1‑to‑1 to an Elixir module.
-  # Adjust here if you want a different mapping.
-  defp to_elixir_modname(n), do: n
+  # A Nova module name may arrive as an `Ast.Identifier` or a raw string.
+  # Convert it to a valid Elixir module name string.
+  defp to_elixir_modname(%Ast.Identifier{name: n}), do: n
+  defp to_elixir_modname(n) when is_binary(n), do: n
 end
+
