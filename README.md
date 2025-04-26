@@ -45,7 +45,7 @@ change—unacceptable in 24 × 7 systems. Nova’s compiler instead acts like a
 ┌────────┐    push decl     ┌─────────────┐      merge
 │  IDE / │ ───────────────► │ Nova daemon │ ─────────────► Shared NS
 │  Agent │ ◄─────────────── │  (BEAM)     │ ◄─────────────
-└────────┘    error / ok     └─────────────┘      rollback
+└────────┘    error / ok    └─────────────┘      rollback
 ```
 
 *   **Hot-reloading**—new logic is live as soon as it passes the type checker.  
@@ -114,6 +114,7 @@ foreign import addOne :: Int -> Int
 - [ ] Exhaustive test-suite for type inference edge-cases  
 - [ ] IDE protocol (LSP + incremental diagnostics)  
 - [ ] Native codegen via LLVM / Cranelift  
+- [ ] Self hosted  
 
 ---
 
