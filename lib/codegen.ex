@@ -91,7 +91,8 @@ defmodule Nova.Compiler.CodeGen do
 
   # Binary operation
   defp compile_expr(%Ast.BinaryOp{op: op, left: l, right: r}) do
-    "#{compile_expr(l)} #{op} #{compile_expr(r)}"
+    # wraps all operations in parentheses to keep precedence as the parser did assign em
+    "(#{compile_expr(l)} #{op} #{compile_expr(r)})"
   end
 
   # Function call / application

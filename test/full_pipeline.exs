@@ -9,14 +9,31 @@ defmodule Nova.IntegrationPipelineTest do
   """
   defp compile_and_eval(source, fun \\ :main, args \\ []) do
     tokens       = Tokenizer.tokenize(source)
-    {:ok, ast}   = Parser.parse(tokens)
+  case Parser.parse(tokens) do
+    {:ok, ast} ->
+      # If you already wired the type-checker, uncomment:
+      # {:ok, _env} = Nova.Compiler.TypeChecker.check_module(ast)
 
-    # If you already wired the type-checker, uncomment:
-    # {:ok, _env} = Nova.Compiler.TypeChecker.check_module(ast)
+      elixir_code = CodeGen.compile(ast)
+      [{mod, _bin}] = Code.compile_string(elixir_code)
+      apply(mod, fun, args)
 
-    elixir_code  = CodeGen.compile(ast)
-    [{mod, _bin}] = Code.compile_string(elixir_code)
-    apply(mod, fun, args)
+    {:error, reason} ->
+      pretty_tokens =
+        tokens
+        |> Enum.map_join("\n", fn t -> inspect(t, pretty: true, limit: :infinity) end)
+
+      flunk("""
+      ────── PARSER FAILED ─────────────────────────────────────────────
+      #{reason}
+
+      ────── SOURCE ───────────────────────────────────────────────────
+      #{String.trim_trailing(source)}
+
+      ────── TOKENS ───────────────────────────────────────────────────
+      #{pretty_tokens}
+      """)
+  end
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -152,7 +169,7 @@ defmodule Nova.IntegrationPipelineTest do
   test "16 - tuple literal" do
     src = """
     module NovaTest16 where
-    main = {1, "a"}
+    main = Tuple 1 2
     """
     assert compile_and_eval(src) == {1, "a"}
   end
