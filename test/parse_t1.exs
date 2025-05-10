@@ -1,14 +1,3 @@
-# record_parser_test.exs – exhaustive parser coverage for record‑related syntax
-# Run with:  mix test test/record_parser_test.exs
-#
-# The suite progresses from the simplest record constructs to the fully‑fledged
-# sample taken from the Nova source tree.  As the grammar grows you can uncomment
-# (or refine) the `@tag :pending` tests to lock in behaviour.
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
 defmodule Nova.Compiler.RecordParserTest do
   use ExUnit.Case, async: true
 

@@ -19,22 +19,43 @@ defmodule Nova.Compiler.Parser do
         _ -> false
       end)
 
+  defp ensure_consumed(rest) do
+    case skip_newlines(rest) do
+      [] ->
+        :ok
+
+      leftover ->
+        tok = hd(leftover)
+
+        {:error,
+         "unexpected tokens after successful parse – " <>
+           "#{tok.type}:#{inspect(tok.value)} at line #{tok.line}, col #{tok.column}"}
+    end
+  end
+
   def parse(tokens) when is_list(tokens) do
     tokens = drop_newlines(tokens)
 
-    case parse_module(tokens) do
-      {:ok, module, _} ->
-        {:ok, module}
+    with {:ok, mod, rest} <- parse_module(tokens),
+         :ok <- IO.inspect(ensure_consumed(rest)) do
+      {:ok, mod}
+    else
+      _ ->
+        with {:ok, decl, rest} <- parse_declaration(tokens),
+             :ok <- ensure_consumed(rest) do
+          {:ok, decl}
+        else
+          _ ->
+            with {:ok, expr, rest} <- parse_expression(tokens),
+                 :ok <- ensure_consumed(rest) do
+              {:ok, expr}
+            else
+              {:ok, _partial, rest} ->
+                # will raise the tidy “unexpected tokens…” error
+                ensure_consumed(rest)
 
-      {:error, _} ->
-        case parse_declaration(tokens) do
-          {:ok, decl, _} ->
-            {:ok, decl}
-
-          {:error, _} ->
-            case parse_expression(tokens) do
-              {:ok, expr, _} -> {:ok, expr}
-              {:error, reason} -> {:error, reason}
+              {:error, reason} ->
+                {:error, reason}
             end
         end
     end
@@ -43,7 +64,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   #  Module parsing
   # ------------------------------------------------------------
-  defp parse_module(tokens) do
+  def parse_module(tokens) do
     tokens = drop_newlines(tokens)
 
     with {:ok, _, tokens} <- expect_keyword(tokens, "module"),
@@ -56,10 +77,10 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_declarations(tokens), do: parse_declarations(tokens, [])
-  defp parse_declarations([], acc), do: {:ok, Enum.reverse(acc), []}
+  def parse_declarations(tokens), do: parse_declarations(tokens, [])
+  def parse_declarations([], acc), do: {:ok, Enum.reverse(acc), []}
 
-  defp parse_declarations(tokens, acc) do
+  def parse_declarations(tokens, acc) do
     case parse_declaration(tokens) do
       {:ok, decl, rest} -> parse_declarations(rest, [decl | acc])
       {:error, _} when acc != [] -> {:ok, Enum.reverse(acc), tokens}
@@ -1100,7 +1121,7 @@ defmodule Nova.Compiler.Parser do
   defp parse_any(parsers, tokens) do
     case parsers do
       [] ->
-        {:error, "No parser succeeded"}
+        {:error, "No parser succeeded #{inspect(List.first(tokens))}"}
 
       [parser | rest] ->
         case parser.(tokens) do
@@ -1162,7 +1183,6 @@ defmodule Nova.Compiler.Parser do
   end
 
   defp expect_operator(tokens, expected) do
-    # <ΓöÇΓöÇ add this line
     tokens = skip_newlines(tokens)
 
     case tokens do

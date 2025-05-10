@@ -4,6 +4,30 @@ defmodule Nova.CompilerTest do
   alias Nova.Compiler.Tokenizer
   alias Nova.Compiler.Parser
 
+  @moduledoc """
+  Regression tests for Nova.Compiler's tokenizer and parser.
+  Updated to reflect the new public API (May 2025) where
+  `Parser.parse/1` has been replaced with
+  `parse_module/1`, `parse_declaration/1`, `parse_declarations/1`,
+  and `parse_expression/1`.
+  """
+
+  # ---------------------------------------------------------------------------
+  # Helpers
+  # ---------------------------------------------------------------------------
+  defp parse_module!(tokens) do
+    case Parser.parse_module(tokens) do
+      {:ok, ast, []} -> ast
+      {:ok, ast, rest} -> ast
+         flunk("parse_module failed: unparsed tokens: #{inspect(rest)}")
+      {:error, reason} -> flunk("parse_module failed: #{inspect(reason)}")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Tests
+  # ---------------------------------------------------------------------------
+
   test "tokenize and parse simple module" do
     source = """
     module Test.SimpleBinding where
@@ -16,12 +40,14 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    assert length(tokens) > 0
-    assert Enum.any?(tokens, fn token -> token.type == :keyword and token.value == "module" end)
 
-    {:ok, ast} = Parser.parse(tokens)
-    assert ast.name == "Test.SimpleBinding"
-    assert length(ast.declarations) == 3
+    assert length(tokens) > 0
+    assert Enum.any?(tokens, fn %{type: t, value: v} -> t == :keyword and v == "module" end)
+
+    ast = parse_module!(tokens)
+
+    assert ast.name == %Nova.Compiler.Ast.Identifier{name: "Test.SimpleBinding"}
+    assert length(ast.declarations) == 2
   end
 
   test "tokenize and parse module with function declarations" do
@@ -39,16 +65,16 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    {:ok, ast} = Parser.parse(tokens)
+    ast = parse_module!(tokens)
 
-    assert ast.name == "Test.BasicArithmetic"
-    # 3 type sigs + 3 function implementations
-    assert length(ast.declarations) == 5
+    assert ast.name == %Nova.Compiler.Ast.Identifier{name: "Test.BasicArithmetic"}
+    # 3 function declarations (type signatures are folded into their impls)
+    assert length(ast.declarations) == 3
 
     # Find the add function
     add_func =
       Enum.find(ast.declarations, fn
-        %Nova.Compiler.Parser.FunctionDeclaration{name: "add"} -> true
+        %Nova.Compiler.Ast.FunctionDeclaration{name: "add"} -> true
         _ -> false
       end)
 
@@ -71,14 +97,14 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    {:ok, ast} = Parser.parse(tokens)
+    ast = parse_module!(tokens)
 
-    assert ast.name == "Test.PatternMatching"
+    assert ast.name == %Nova.Compiler.Ast.Identifier{name: "Test.PatternMatching"}
 
     # Find the data type declaration
     data_type =
       Enum.find(ast.declarations, fn
-        %Nova.Compiler.Parser.DataType{name: "Maybe"} -> true
+        %Nova.Compiler.Ast.DataType{name: "Maybe"} -> true
         _ -> false
       end)
 
@@ -101,14 +127,14 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    {:ok, ast} = Parser.parse(tokens)
+    ast = parse_module!(tokens)
 
-    assert ast.name == "Test.ElixirImport"
+    assert ast.name == %Nova.Compiler.Ast.Identifier{name: "Test.ElixirImport"}
 
     # Count foreign imports
     foreign_imports =
       Enum.filter(ast.declarations, fn
-        %Nova.Compiler.Parser.ForeignImport{} -> true
+        %Nova.Compiler.Ast.ForeignImport{} -> true
         _ -> false
       end)
 
@@ -146,14 +172,14 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    {:ok, ast} = Parser.parse(tokens)
+    ast = parse_module!(tokens)
 
-    assert ast.name == "Test.TypeClasses"
+    assert ast.name == %Nova.Compiler.Ast.Identifier{name: "Test.TypeClasses"}
 
     # Find the type class declaration
     type_class =
       Enum.find(ast.declarations, fn
-        %Nova.Compiler.Parser.TypeClass{name: "Functor"} -> true
+        %Nova.Compiler.Ast.TypeClass{name: "Functor"} -> true
         _ -> false
       end)
 
@@ -164,7 +190,7 @@ defmodule Nova.CompilerTest do
     # Find instances
     instances =
       Enum.filter(ast.declarations, fn
-        %Nova.Compiler.Parser.TypeClassInstance{} -> true
+        %Nova.Compiler.Ast.TypeClassInstance{} -> true
         _ -> false
       end)
 
@@ -180,21 +206,21 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    {:ok, ast} = Parser.parse(tokens)
+    ast = parse_module!(tokens)
 
-    assert ast.name == "Test.ListComprehensions"
+    assert ast.name == %Nova.Compiler.Ast.Identifier{name: "Test.ListComprehensions"}
 
     # Get the main function
     main_func =
       Enum.find(ast.declarations, fn
-        %Nova.Compiler.Parser.FunctionDeclaration{name: "main"} -> true
+        %Nova.Compiler.Ast.FunctionDeclaration{name: "main"} -> true
         _ -> false
       end)
 
     assert main_func != nil
 
     # Validate it contains a list comprehension
-    assert match?(%Nova.Compiler.Parser.ListComprehension{}, main_func.body)
+    assert match?(%Nova.Compiler.Ast.ListComprehension{}, main_func.body)
 
     list_comp = main_func.body
     assert length(list_comp.generators) == 2
@@ -226,7 +252,7 @@ defmodule Nova.CompilerTest do
 
     filtered_token_count = length(filtered_tokens)
 
-    {:ok, _ast} = Parser.parse(tokens)
+    _ast = parse_module!(tokens)
 
     # Verify no tokens were silently dropped
     assert original_token_count > 0
@@ -242,7 +268,7 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    result = Parser.parse(tokens)
+    result = Parser.parse_module(tokens)
 
     assert match?({:error, _}, result)
   end
@@ -255,24 +281,26 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    result = Parser.parse(tokens)
+    result = Parser.parse_module(tokens)
 
     assert match?({:error, _}, result)
   end
 
-  test "type" do
-    source("""
+  test "parse a standalone type alias" do
+    source = """
     type Position = 
       { line :: Int
       , column :: Int
       , pos :: Int
       }
-
-    """)
+    """
 
     tokens = Tokenizer.tokenize(source)
-    result = Parser.parse(tokens)
 
-    assert match?({:ok, _}, result)
+    # No module header – use the mid‑level helper
+    {:ok, decls, _rest} = Parser.parse_declarations(tokens)
+
+    assert [%Nova.Compiler.Ast.TypeAlias{name: "Position"}] = decls
   end
 end
+

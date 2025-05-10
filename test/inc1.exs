@@ -3,26 +3,27 @@ defmodule Nova.TypeChecker.IncrementalTest do
   alias Nova.Compiler.{Tokenizer, Parser, TypeChecker}
   alias Nova.Compiler.Env
 
-  @source """
-  module Nova.Compiler.Tokenizer where
+"""
+module Nova.Compiler.Tokenizer where
 
   consumeIdentifier source acc pos =
     case uncons $ toCharArray source of
       Nothing -> { value: acc, newSource: "", newPos: pos }
-      Just { head, tail } ->
-        if isIdentChar head then
-          consumeIdentifier (fromCharArray tail) (acc <> singleton head)
-            { line: pos.line, column: pos.column + 1, pos: pos.pos + 1 }
-        else
-          { value: acc
-          , newSource: source
-          , newPos: { line: pos.line, column: pos.column, pos: pos.pos }
-          } 
+      Just { head, tail } -> 
+"""
+
+  @source """
+case isIdentChar head of
+  true -> 
+     2
+  false -> 
+     1         
   """
 
   test "incrementally adds each declaration to the environment" do
     tokens = IO.inspect(Tokenizer.tokenize(@source))
-    {:ok, %{body: decls}} = IO.inspect(Parser.parse(tokens))
+    {:ok, decls, rest} = IO.inspect(Parser.parse_declarations(tokens))
+    IO.inspect decls
     # {:ok, %Nova.Compiler.Ast.Module{body: decls}} = Parser.parse(tokens)
 
     # Start with empty type environment
