@@ -45,13 +45,13 @@ operators =
   ]
 
 tokenize :: String -> List Token
-tokenize source = tokenize' source Nil initialPosition
+tokenize source = tokenize_ source Nil initialPosition
   where
     initialPosition = { line: 1, column: 1, pos: 0 }
 
-tokenize' :: String -> List Token -> Position -> List Token
-tokenize' "" tokens _ = tokens
-tokenize' source tokens pos =
+tokenize_ :: String -> List Token -> Position -> List Token
+tokenize_ "" tokens _ = tokens
+tokenize_ source tokens pos =
   case uncons $ toCharArray source of
     Nothing -> tokens
     Just { head, tail } -> 
@@ -59,66 +59,66 @@ tokenize' source tokens pos =
       case head of
         '\n' -> 
           let newPos = { line: pos.line + 1, column: 1, pos: pos.pos + 1 }
-          in tokenize' restStr tokens newPos
+          in tokenize_ restStr tokens newPos
           
         ' ' -> 
           let newPos = { line: pos.line, column: pos.column + 1, pos: pos.pos + 1 }
-          in tokenize' restStr tokens newPos
+          in tokenize_ restStr tokens newPos
           
         '\t' -> 
           let newPos = { line: pos.line, column: pos.column + 1, pos: pos.pos + 1 }
-          in tokenize' restStr tokens newPos
+          in tokenize_ restStr tokens newPos
           
         _ ->
           if take 2 source == "--" then
             let { newSource, newPos } = consumeLineComment (drop 2 source) 
                   { line: pos.line, column: pos.column + 2, pos: pos.pos + 2 }
-            in tokenize' newSource tokens newPos
+            in tokenize_ newSource tokens newPos
             
           else if take 2 source == "{-" then
             let { newSource, newPos } = consumeBlockComment (drop 2 source) 
                   { line: pos.line, column: pos.column + 2, pos: pos.pos + 2 } 1
-            in tokenize' newSource tokens newPos
+            in tokenize_ newSource tokens newPos
             
           else if head == '"' then
             let { value, newSource, newPos } = consumeString restStr "" 
                   { line: pos.line, column: pos.column + 1, pos: pos.pos + 1 }
                 token = { type: String, value, line: pos.line, column: pos.column, pos: pos.pos }
-            in tokenize' newSource (token : tokens) 
+            in tokenize_ newSource (token : tokens) 
                 { line: newPos.line, column: newPos.column + 1, pos: newPos.pos + 1 }
                 
           else if head == '\'' then
             let { value, newSource, newPos } = consumeChar restStr 
                   { line: pos.line, column: pos.column + 1, pos: pos.pos + 1 }
                 token = { type: Char, value, line: pos.line, column: pos.column, pos: pos.pos }
-            in tokenize' newSource (token : tokens) 
+            in tokenize_ newSource (token : tokens) 
                 { line: newPos.line, column: newPos.column + 1, pos: newPos.pos + 1 }
                 
           else if isDigit head then
             let { value, newSource, newPos } = consumeNumber source "" pos
                 token = { type: Number, value, line: pos.line, column: pos.column, pos: pos.pos }
-            in tokenize' newSource (token : tokens) newPos
+            in tokenize_ newSource (token : tokens) newPos
             
           else if isOperatorChar head then
             let { value, newSource, newPos } = consumeOperator source pos
                 token = { type: Operator, value, line: pos.line, column: pos.column, pos: pos.pos }
-            in tokenize' newSource (token : tokens) newPos
+            in tokenize_ newSource (token : tokens) newPos
             
           else if isIdentStart head then
             let { value, newSource, newPos } = consumeIdentifier source "" pos
                 tokenType = if isKeyword value then Keyword else Identifier
                 token = { type: tokenType, value, line: pos.line, column: pos.column, pos: pos.pos }
-            in tokenize' newSource (token : tokens) newPos
+            in tokenize_ newSource (token : tokens) newPos
             
           else if isDelimiter head then
             let token = { type: Delimiter, value: singleton head, line: pos.line, column: pos.column, pos: pos.pos }
                 newPos = { line: pos.line, column: pos.column + 1, pos: pos.pos + 1 }
-            in tokenize' restStr (token : tokens) newPos
+            in tokenize_ restStr (token : tokens) newPos
             
           else
             let token = { type: Unrecognized, value: singleton head, line: pos.line, column: pos.column, pos: pos.pos }
                 newPos = { line: pos.line, column: pos.column + 1, pos: pos.pos + 1 }
-            in tokenize' restStr (token : tokens) newPos
+            in tokenize_ restStr (token : tokens) newPos
 
 consumeLineComment :: String -> Position -> { newSource :: String, newPos :: Position }
 consumeLineComment source pos =

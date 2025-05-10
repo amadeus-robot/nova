@@ -149,7 +149,11 @@ defmodule Nova.Compiler.Parser do
     with {:ok, _, tokens} <- expect_keyword(tokens, "data"),
          {:ok, type_name, tokens} <- parse_identifier(tokens),
          {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens),
+         # <ΓöÇΓöÇ here
+         tokens = skip_newlines(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "="),
+         # <ΓöÇΓöÇ and here
+         tokens = skip_newlines(tokens),
          {:ok, constructors, tokens} <- parse_data_constructors(tokens) do
       {:ok,
        %Ast.DataType{
@@ -279,6 +283,7 @@ defmodule Nova.Compiler.Parser do
          {:ok, name, tokens} <- parse_identifier(tokens),
          {:ok, vars, tokens} <- parse_many(&parse_identifier/1, tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "="),
+         tokens = skip_newlines(tokens),
          {:ok, aliased, tokens} <- parse_type(tokens) do
       {:ok,
        %Ast.TypeAlias{
@@ -305,9 +310,30 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
+  # 2. Parser helpers 
+  defp parse_record_type([%Token{type: :delimiter, value: "{"} | rest]) do
+    with {:ok, fields, rest} <-
+           parse_separated(&parse_record_field/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, "}") do
+      {:ok, %Ast.RecordType{fields: fields}, rest}
+    end
+  end
+
+  defp parse_record_type(_), do: {:error, "Expected record type"}
+
+  defp parse_record_field(tokens) do
+    with {:ok, label, tokens} <- parse_identifier(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "::"),
+         tokens = skip_newlines(tokens),
+         {:ok, t, tokens} <- parse_type(tokens) do
+      {:ok, {label.name, t}, tokens}
+    end
+  end
+
   defp parse_type_term(tokens) do
     parse_any(
       [
+        &parse_record_type/1,
         &parse_list_type/1,
         &parse_tuple_type/1,
         &parse_basic_type/1
@@ -1055,6 +1081,8 @@ defmodule Nova.Compiler.Parser do
   end
 
   def expect_keyword(tokens, expected) do
+    tokens = skip_newlines(tokens)
+
     case tokens do
       [%Token{type: :keyword, value: ^expected} | rest] ->
         {:ok, expected, rest}
@@ -1065,6 +1093,9 @@ defmodule Nova.Compiler.Parser do
   end
 
   defp expect_operator(tokens, expected) do
+    # <ΓöÇΓöÇ add this line
+    tokens = skip_newlines(tokens)
+
     case tokens do
       [%Token{type: :operator, value: ^expected} | rest] ->
         {:ok, expected, rest}
@@ -1075,6 +1106,8 @@ defmodule Nova.Compiler.Parser do
   end
 
   defp expect_delimiter(tokens, expected) do
+    tokens = skip_newlines(tokens)
+
     case tokens do
       [%Token{type: :delimiter, value: ^expected} | rest] ->
         {:ok, expected, rest}

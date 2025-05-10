@@ -176,7 +176,12 @@ defmodule Nova.Compiler.CodeGen do
   defp string_typed?(_), do: false
 
   # -- foreign import -------------------------------------------------
-  defp gen_foreign(%Ast.ForeignImport{module: mod, function: fun, alias: name, type_signature: ts}) do
+  defp gen_foreign(%Ast.ForeignImport{
+         module: mod,
+         function: fun,
+         alias: name,
+         type_signature: ts
+       }) do
     arity = count_params(ts.type)
     args = for i <- 1..arity, do: "arg#{i}"
 

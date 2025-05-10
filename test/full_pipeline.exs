@@ -8,32 +8,33 @@ defmodule Nova.IntegrationPipelineTest do
   and invoke `fun/arity` with `args`, returning the value.
   """
   defp compile_and_eval(source, fun \\ :main, args \\ []) do
-    tokens       = Tokenizer.tokenize(source)
-  case Parser.parse(tokens) do
-    {:ok, ast} ->
-      # If you already wired the type-checker, uncomment:
-      # {:ok, _env} = Nova.Compiler.TypeChecker.check_module(ast)
+    tokens = Tokenizer.tokenize(source)
 
-      elixir_code = CodeGen.compile(ast)
-      [{mod, _bin}] = Code.compile_string(elixir_code)
-      apply(mod, fun, args)
+    case Parser.parse(tokens) do
+      {:ok, ast} ->
+        # If you already wired the type-checker, uncomment:
+        # {:ok, _env} = Nova.Compiler.TypeChecker.check_module(ast)
 
-    {:error, reason} ->
-      pretty_tokens =
-        tokens
-        |> Enum.map_join("\n", fn t -> inspect(t, pretty: true, limit: :infinity) end)
+        elixir_code = CodeGen.compile(ast)
+        [{mod, _bin}] = Code.compile_string(elixir_code)
+        apply(mod, fun, args)
 
-      flunk("""
-      ────── PARSER FAILED ─────────────────────────────────────────────
-      #{reason}
+      {:error, reason} ->
+        pretty_tokens =
+          tokens
+          |> Enum.map_join("\n", fn t -> inspect(t, pretty: true, limit: :infinity) end)
 
-      ────── SOURCE ───────────────────────────────────────────────────
-      #{String.trim_trailing(source)}
+        flunk("""
+        ────── PARSER FAILED ─────────────────────────────────────────────
+        #{reason}
 
-      ────── TOKENS ───────────────────────────────────────────────────
-      #{pretty_tokens}
-      """)
-  end
+        ────── SOURCE ───────────────────────────────────────────────────
+        #{String.trim_trailing(source)}
+
+        ────── TOKENS ───────────────────────────────────────────────────
+        #{pretty_tokens}
+        """)
+    end
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest01 where
     main = 42
     """
+
     assert compile_and_eval(src) == 42
   end
 
@@ -53,6 +55,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest02 where
     main = 1 + 2
     """
+
     assert compile_and_eval(src) == 3
   end
 
@@ -61,6 +64,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest03 where
     main = 1 + 2 * 3
     """
+
     assert compile_and_eval(src) == 7
   end
 
@@ -69,6 +73,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest04 where
     main = (1 + 2) * 3
     """
+
     assert compile_and_eval(src) == 9
   end
 
@@ -77,6 +82,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest05 where
     main = if true then 1 else 2
     """
+
     assert compile_and_eval(src) == 1
   end
 
@@ -85,6 +91,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest06 where
     main = 3 == 4
     """
+
     assert compile_and_eval(src) == false
   end
 
@@ -93,6 +100,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest07 where
     main = let x = 5 in x * 2
     """
+
     assert compile_and_eval(src) == 10
   end
 
@@ -101,6 +109,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest08 where
     main = (\\x -> x + 1) 4
     """
+
     assert compile_and_eval(src) == 5
   end
 
@@ -110,6 +119,7 @@ defmodule Nova.IntegrationPipelineTest do
     add = \\x -> \\y -> x + y
     main = add 2 3
     """
+
     assert compile_and_eval(src) == 5
   end
 
@@ -119,6 +129,7 @@ defmodule Nova.IntegrationPipelineTest do
     add x y = x + y
     main = add 3 4
     """
+
     assert compile_and_eval(src) == 7
   end
 
@@ -129,6 +140,7 @@ defmodule Nova.IntegrationPipelineTest do
     inc = add 1
     main = inc 5
     """
+
     assert compile_and_eval(src) == 6
   end
 
@@ -138,6 +150,7 @@ defmodule Nova.IntegrationPipelineTest do
     apply f x = f x
     main = apply (\\n -> n * 3) 2
     """
+
     assert compile_and_eval(src) == 6
   end
 
@@ -147,6 +160,7 @@ defmodule Nova.IntegrationPipelineTest do
     factorial n = if n == 0 then 1 else n * factorial (n - 1)
     main = factorial 5
     """
+
     assert compile_and_eval(src) == 120
   end
 
@@ -155,6 +169,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest14 where
     main = [1, 2, 3]
     """
+
     assert compile_and_eval(src) == [1, 2, 3]
   end
 
@@ -163,6 +178,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest15 where
     main = [1, 2] ++ [3, 4]
     """
+
     assert compile_and_eval(src) == [1, 2, 3, 4]
   end
 
@@ -171,6 +187,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest16 where
     main = Tuple 1 2
     """
+
     assert compile_and_eval(src) == {1, "a"}
   end
 
@@ -181,6 +198,7 @@ defmodule Nova.IntegrationPipelineTest do
       1 -> "one"
       _ -> "other"
     """
+
     assert compile_and_eval(src) == "one"
   end
 
@@ -189,6 +207,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest18 where
     main = let x = 2 in let y = 3 in x + y
     """
+
     assert compile_and_eval(src) == 5
   end
 
@@ -197,6 +216,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest19 where
     main = if true && false then 1 else 0
     """
+
     assert compile_and_eval(src) == 0
   end
 
@@ -205,6 +225,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest20 where
     main = if 5 > 3 then "yes" else "no"
     """
+
     assert compile_and_eval(src) == "yes"
   end
 
@@ -213,6 +234,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest21 where
     main = let x = 10 in (\\y -> x + y) 5
     """
+
     assert compile_and_eval(src) == 15
   end
 
@@ -221,6 +243,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest22 where
     main = "foo" ++ "bar"
     """
+
     assert compile_and_eval(src) == "foobar"
   end
 
@@ -230,6 +253,7 @@ defmodule Nova.IntegrationPipelineTest do
     swap {a, b} = {b, a}
     main = swap {1, 2}
     """
+
     assert compile_and_eval(src) == {2, 1}
   end
 
@@ -239,6 +263,7 @@ defmodule Nova.IntegrationPipelineTest do
     pow x y = if y == 0 then 1 else x * pow x (y - 1)
     main = pow 2 3
     """
+
     assert compile_and_eval(src) == 8
   end
 
@@ -247,6 +272,7 @@ defmodule Nova.IntegrationPipelineTest do
     module NovaTest25 where
     main = let f = \\n -> n - 1 in f 4
     """
+
     assert compile_and_eval(src) == 3
   end
 end

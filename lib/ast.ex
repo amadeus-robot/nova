@@ -109,4 +109,9 @@ defmodule Nova.Compiler.Ast do
   defmodule PrefixOperator do
     defstruct [:op, :expression]
   end
+
+  defmodule RecordType do
+    # [{label :: String.t(), type :: t()}]
+    defstruct [:fields]
+  end
 end

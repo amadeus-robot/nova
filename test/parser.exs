@@ -259,4 +259,20 @@ defmodule Nova.CompilerTest do
 
     assert match?({:error, _}, result)
   end
+
+  test "type" do
+    source("""
+    type Position = 
+      { line :: Int
+      , column :: Int
+      , pos :: Int
+      }
+
+    """)
+
+    tokens = Tokenizer.tokenize(source)
+    result = Parser.parse(tokens)
+
+    assert match?({:ok, _}, result)
+  end
 end
