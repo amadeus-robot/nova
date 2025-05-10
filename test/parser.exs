@@ -17,10 +17,15 @@ defmodule Nova.CompilerTest do
   # ---------------------------------------------------------------------------
   defp parse_module!(tokens) do
     case Parser.parse_module(tokens) do
-      {:ok, ast, []} -> ast
-      {:ok, ast, rest} -> ast
-         flunk("parse_module failed: unparsed tokens: #{inspect(rest)}")
-      {:error, reason} -> flunk("parse_module failed: #{inspect(reason)}")
+      {:ok, ast, []} ->
+        ast
+
+      {:ok, ast, rest} ->
+        ast
+        flunk("parse_module failed: unparsed tokens: #{inspect(rest)}")
+
+      {:error, reason} ->
+        flunk("parse_module failed: #{inspect(reason)}")
     end
   end
 
@@ -302,5 +307,61 @@ defmodule Nova.CompilerTest do
 
     assert [%Nova.Compiler.Ast.TypeAlias{name: "Position"}] = decls
   end
-end
 
+  test "parse case v1" do
+    source = """
+      case uncons $ toCharArray source of
+        Nothing -> { value: acc, newSource: "", newPos: pos }
+        Just { head, tail } -> 
+          1         
+    """
+
+    tokens = Tokenizer.tokenize(source)
+
+    # No module header – use the mid‑level helper
+    {:ok, decls, rest} = Parser.parse_expression(tokens)
+
+    assert rest == []
+  end
+
+  test "parse nested case 1" do
+    source = """
+      case source of
+        Nothing -> 3 
+        Just head -> 
+         case head of
+            true -> 
+               2
+            false -> 
+               1         
+    """
+
+    tokens = Tokenizer.tokenize(source)
+
+    # No module header – use the mid‑level helper
+    {:ok, decls, rest} = Parser.parse_expression(tokens)
+
+    IO.inspect(decls)
+    assert rest == []
+  end
+
+  test "parse nested case" do
+    source = """
+      case uncons $ toCharArray source of
+        Nothing -> { value: acc, newSource: "", newPos: pos }
+        Just { head, tail } -> 
+          case isIdentChar head of
+            true -> 
+               2
+            false -> 
+               1         
+    """
+
+    tokens = Tokenizer.tokenize(source)
+
+    # No module header – use the mid‑level helper
+    {:ok, decls, rest} = Parser.parse_expression(tokens)
+
+    assert rest == []
+  end
+end

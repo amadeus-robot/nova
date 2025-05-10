@@ -33,34 +33,6 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  def parse(tokens) when is_list(tokens) do
-    tokens = drop_newlines(tokens)
-
-    with {:ok, mod, rest} <- parse_module(tokens),
-         :ok <- IO.inspect(ensure_consumed(rest)) do
-      {:ok, mod}
-    else
-      _ ->
-        with {:ok, decl, rest} <- parse_declaration(tokens),
-             :ok <- ensure_consumed(rest) do
-          {:ok, decl}
-        else
-          _ ->
-            with {:ok, expr, rest} <- parse_expression(tokens),
-                 :ok <- ensure_consumed(rest) do
-              {:ok, expr}
-            else
-              {:ok, _partial, rest} ->
-                # will raise the tidy “unexpected tokens…” error
-                ensure_consumed(rest)
-
-              {:error, reason} ->
-                {:error, reason}
-            end
-        end
-    end
-  end
-
   # ------------------------------------------------------------
   #  Module parsing
   # ------------------------------------------------------------
@@ -737,38 +709,50 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp take_body(tokens, acc) do
+  defp take_body(tokens, acc, indent) do
     case tokens do
       [] ->
         {Enum.reverse(acc), []}
 
-      # keep the *token* instead of inserting a raw string
       [%Token{type: :newline} = nl | rest] ->
         rest = skip_newlines(rest)
 
-        if clause_start?(rest) do
-          {Enum.reverse(acc), rest}
-        else
-          take_body(rest, [nl | acc])
+        clause_start = clause_start?(rest)
+
+        case rest do
+          [%Token{column: col} | _] = next when col <= indent and clause_start ->
+            {Enum.reverse(acc), rest}
+
+          _ ->
+            take_body(rest, [nl | acc], indent)
         end
 
       [tok | rest] ->
-        take_body(rest, [tok | acc])
+        take_body(rest, [tok | acc], indent)
     end
   end
 
   def parse_case_clause(tokens) do
     tokens = skip_newlines(tokens)
 
-    with {:ok, pattern, tokens} <- parse_pattern(tokens),
-         {:ok, _, tokens} <- expect_operator(tokens, "->") do
-      {body_tokens, rest} = take_body(tokens, [])
+    # Record the left-edge column of this clause’s pattern
+    case tokens do
+      [] ->
+        {:error, "no more to parse"}
 
-      with {:ok, body, []} <- parse_expression(body_tokens) do
-        {:ok, %Ast.CaseClause{pattern: pattern, body: body}, drop_newlines(rest)}
-      else
-        {:error, reason} -> {:error, reason}
-      end
+      [%Token{column: indent} | _] ->
+        with {:ok, pattern, tokens} <- parse_pattern(tokens),
+             {:ok, _, tokens} <- expect_operator(tokens, "->") do
+          {body_tokens, rest} = take_body(tokens, [], indent)
+
+          with {:ok, body, remaining} <- parse_expression(body_tokens),
+               [] <- skip_newlines(remaining) do
+            {:ok, %Ast.CaseClause{pattern: pattern, body: body}, drop_newlines(rest)}
+          else
+            {:error, reason} -> {:error, reason}
+            _ -> {:error, "unexpected tokens after case-clause body"}
+          end
+        end
     end
   end
 
