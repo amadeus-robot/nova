@@ -144,6 +144,32 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
+  defp parse_record_pattern([%Token{type: :delimiter, value: "{"} | rest]) do
+    with {:ok, fields, rest} <-
+           parse_separated(&parse_record_field_pattern/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, "}") do
+      {:ok, %Ast.RecordPattern{fields: fields}, rest}
+    end
+  end
+
+  defp parse_record_pattern(_), do: {:error, "Expected record pattern"}
+
+  # { head }            – shorthand for field label == bound var
+  # { head = h }        – label + explicit pattern
+  defp parse_record_field_pattern(tokens) do
+    with {:ok, lbl, tokens} <- parse_identifier(tokens) do
+      case expect_operator(tokens, "=") do
+        {:ok, _, tokens} ->
+          with {:ok, pat, tokens} <- parse_pattern(tokens) do
+            {:ok, {lbl.name, pat}, tokens}
+          end
+
+        {:error, _} ->
+          {:ok, {lbl.name, %Ast.Identifier{name: lbl.name}}, tokens}
+      end
+    end
+  end
+
   # Data type declaration
   defp parse_data_declaration(tokens) do
     with {:ok, _, tokens} <- expect_keyword(tokens, "data"),
@@ -476,6 +502,7 @@ defmodule Nova.Compiler.Parser do
   defp parse_pattern(tokens) do
     parse_any(
       [
+        &parse_record_pattern/1,
         &parse_constructor_pattern/1,
         &parse_tuple_pattern/1,
         &parse_list_pattern/1,
@@ -780,10 +807,30 @@ defmodule Nova.Compiler.Parser do
         &parse_case_expression/1,
         &parse_do_block/1,
         &parse_lambda/1,
-        &parse_logical_expression/1
+        &parse_dollar_expression/1
       ],
       tokens
     )
+  end
+
+  defp parse_dollar_expression(tokens) do
+    # first parse *anything* tighter than '$'
+    with {:ok, left, tokens} <- parse_logical_expression(tokens) do
+      tokens = skip_newlines(tokens)
+
+      case tokens do
+        [%Token{type: :operator, value: "$"} | rest] ->
+          rest = skip_newlines(rest)
+
+          # right-associative: parse the *whole* rhs with the same rule
+          with {:ok, right, rest} <- parse_dollar_expression(rest) do
+            {:ok, %Ast.FunctionCall{function: left, arguments: [right]}, rest}
+          end
+
+        _ ->
+          {:ok, left, tokens}
+      end
+    end
   end
 
   # ------------------------------------------------------------
@@ -844,6 +891,27 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
+  # ── record literal  ─────────────────────────────────────────
+  defp parse_record_literal([%Token{type: :delimiter, value: "{"} | rest]) do
+    with {:ok, fields, rest} <-
+           parse_separated(&parse_record_field_expr/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, "}") do
+      {:ok, %Ast.RecordLiteral{fields: fields}, rest}
+    end
+  end
+
+  defp parse_record_literal(_), do: {:error, "Expected record literal"}
+
+  defp parse_record_field_expr(tokens) do
+    with {:ok, label, tokens} <- parse_identifier(tokens),
+         # uses the new ':'
+         {:ok, _, tokens} <- expect_delimiter(tokens, ":"),
+         tokens = skip_newlines(tokens),
+         {:ok, expr, tokens} <- parse_expression(tokens) do
+      {:ok, {label.name, expr}, tokens}
+    end
+  end
+
   # ------------------------------------------------------------
   # 5. multiplicative (* /)
   # ------------------------------------------------------------
@@ -897,6 +965,7 @@ defmodule Nova.Compiler.Parser do
   defp parse_term(tokens) do
     parse_any(
       [
+        &parse_record_literal/1,
         &parse_literal/1,
         &parse_list_literal/1,
         &parse_list_comprehension/1,

@@ -114,4 +114,14 @@ defmodule Nova.Compiler.Ast do
     # [{label :: String.t(), type :: t()}]
     defstruct [:fields]
   end
+
+  defmodule RecordPattern do
+    # [{label, pattern}, …]
+    defstruct [:fields]
+  end
+
+  defmodule RecordLiteral do
+    # [{label, expression}, …]
+    defstruct [:fields]
+  end
 end

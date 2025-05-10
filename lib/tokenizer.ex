@@ -5,7 +5,7 @@ defmodule Nova.Compiler.Tokenizer do
 
   @keywords ~w(foreign module where import data type class instance let in if then else case of do)
   @operators ~w(
-  == != <= >= -> <- :: ++ ++= >>= >> << && || + - * / < > =
+  == != <= >= -> <- :: ++ ++= >>= >> << && || + - * / < > = $
 )
 
   def tokenize(source) when is_binary(source) do
@@ -83,10 +83,14 @@ defmodule Nova.Compiler.Tokenizer do
   end
 
   # Operator
-  defp tokenize(<<c::utf8, rest::binary>> = input, acc, line, column, pos)
-       when c in [?+, ?-, ?*, ?/, ?=, ?<, ?>, ?!, ?:, ?., ?|, ?\\, ?&] do
+  defp tokenize(<<c::utf8, _::binary>> = input, acc, line, column, pos)
+       when c in [?+, ?-, ?*, ?/, ?=, ?<, ?>, ?!, ?:, ?., ?|, ?\\, ?&, ?$] do
     {op, rest, new_column, new_pos} = consume_operator(input, line, column, pos)
-    token = %Token{type: :operator, value: op, line: line, column: column, pos: pos}
+
+    # If we only picked up a *single* ':' → treat it as a delimiter
+    tok_type = if op == ":", do: :delimiter, else: :operator
+
+    token = %Token{type: tok_type, value: op, line: line, column: column, pos: pos}
     tokenize(rest, [token | acc], line, new_column, new_pos)
   end
 
