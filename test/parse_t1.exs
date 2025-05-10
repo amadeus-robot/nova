@@ -91,7 +91,6 @@ defmodule Nova.Compiler.RecordParserTest do
   # ───────────────────────────────────────────────────────────────────────────
   # 4. **Record literal** – pending until the literal grammar lands            
   # ───────────────────────────────────────────────────────────────────────────
-  @tag :pending
   test "parses simple record literal" do
     src = """
     x = { foo: 1, bar: 2 }
