@@ -720,9 +720,15 @@ defmodule Nova.Compiler.Parser do
         clause_start = clause_start?(rest)
 
         case rest do
-          [%Token{column: col} | _] = next when col <= indent and clause_start ->
-            {Enum.reverse(acc), rest}
+          # ❶ plain dedent – always end the body
+          [%Token{column: col} | _] = next when col < indent ->
+            {Enum.reverse(acc), next}
 
+          # ❷ same-column clause start – also end the body
+          [%Token{column: col} | _] = next when col == indent and clause_start ->
+            {Enum.reverse(acc), next}
+
+          # ❸ otherwise keep accumulating
           _ ->
             take_body(rest, [nl | acc], indent)
         end
@@ -885,7 +891,7 @@ defmodule Nova.Compiler.Parser do
   defp parse_additive_expression(tokens) do
     with {:ok, left, tokens} <- parse_multiplicative_expression(tokens) do
       case tokens do
-        [%Token{type: :operator, value: op} | rest] when op in ["+", "-", "++"] ->
+        [%Token{type: :operator, value: op} | rest] when op in ["+", "-", "++", "<>"] ->
           with {:ok, right, rest} <- parse_additive_expression(rest) do
             {:ok, %Ast.BinaryOp{op: op, left: left, right: right}, rest}
           end
@@ -927,6 +933,19 @@ defmodule Nova.Compiler.Parser do
         [%Token{type: :operator, value: op} | rest] when op in ["*", "/"] ->
           with {:ok, right, rest} <- parse_multiplicative_expression(rest) do
             {:ok, %Ast.BinaryOp{op: op, left: left, right: right}, rest}
+          end
+
+        [
+          %Token{type: :operator, value: "`"},
+          %Token{type: :identifier, value: fun},
+          %Token{type: :operator, value: "`"} | rest
+        ] ->
+          with {:ok, right, rest} <- parse_multiplicative_expression(rest) do
+            {:ok,
+             %Ast.FunctionCall{
+               function: %Ast.Identifier{name: fun},
+               arguments: [left, right]
+             }, rest}
           end
 
         _ ->

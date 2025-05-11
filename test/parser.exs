@@ -364,4 +364,36 @@ defmodule Nova.CompilerTest do
 
     assert rest == []
   end
+
+  test "use of <> operator" do
+    source = """
+    consumeIdentifier source (acc <> "rolf") { line: pos.line, column: pos.column + 1, pos: pos.pos + 1 }
+    """
+
+    tokens = Tokenizer.tokenize(source)
+
+    # No module header – use the mid‑level helper
+    {:ok, decls, rest} = Parser.parse_expression(tokens)
+
+    assert rest == []
+  end
+
+  test "case then next declaration" do
+    source = """
+    consumeIdentifier a =
+      case uncons $ toCharArray source of
+       Nothing -> 2 
+       Just a -> 1 
+
+    isKeyword str = 2 
+    """
+
+    IO.puts(source)
+    tokens = Tokenizer.tokenize(source)
+
+    # No module header – use the mid‑level helper
+    {:ok, decls, rest} = Parser.parse_declarations(tokens)
+
+    assert rest == []
+  end
 end

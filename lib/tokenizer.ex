@@ -5,8 +5,12 @@ defmodule Nova.Compiler.Tokenizer do
 
   @keywords ~w(foreign module where import data type class instance let in if then else case of do)
   @operators ~w(
-  == != <= >= -> <- :: ++ ++= >>= >> << && || + - * / < > = $
+  == != <= >= -> <- :: ++ ++= >>= >> << && || 
+ <>  
+  + - * / < > = $
+  \`
 )
+  @operators_single_char [?+, ?-, ?*, ?/, ?=, ?<, ?>, ?!, ?:, ?., ?|, ?\\, ?&, ?$, ?`]
 
   def tokenize(source) when is_binary(source) do
     tokenize(source, [], 1, 1, 0)
@@ -28,12 +32,10 @@ defmodule Nova.Compiler.Tokenizer do
     tokenize(rest, [token | acc], line + 1, 1, pos + 1)
   end
 
-  defp tokenize(" " <> rest, acc, line, column, pos) do
-    tokenize(rest, acc, line, column + 1, pos + 1)
-  end
-
-  defp tokenize("\t" <> rest, acc, line, column, pos) do
-    tokenize(rest, acc, line, column + 1, pos + 1)
+  defp tokenize(<<c::utf8, _::binary>> = input, acc, line, column, pos)
+       when c in [?\s, ?\t] do
+    {rest, line, column, pos} = consume_hspace(input, line, column, pos)
+    tokenize(rest, acc, line, column, pos)
   end
 
   # Line comment
@@ -84,7 +86,7 @@ defmodule Nova.Compiler.Tokenizer do
 
   # Operator
   defp tokenize(<<c::utf8, _::binary>> = input, acc, line, column, pos)
-       when c in [?+, ?-, ?*, ?/, ?=, ?<, ?>, ?!, ?:, ?., ?|, ?\\, ?&, ?$] do
+       when c in @operators_single_char do
     {op, rest, new_column, new_pos} = consume_operator(input, line, column, pos)
 
     # If we only picked up a *single* ':' → treat it as a delimiter
@@ -195,13 +197,13 @@ defmodule Nova.Compiler.Tokenizer do
   end
 
   # 1 regular char  →  'a'
-  defp consume_char(<<c::utf8, "'", rest::binary>>, line, column, pos)
-       when c != ?\\ do
+  def consume_char(<<c::utf8, "'", rest::binary>>, line, column, pos)
+      when c != ?\\ do
     {<<c::utf8>>, rest, line, column + 2, pos + 2}
   end
 
   # 2 escaped char  →  '\n'  '\t'  '\\'  '\''
-  defp consume_char("\\" <> <<esc::utf8, "'", rest::binary>>, line, column, pos) do
+  def consume_char(<<?\\, esc::utf8, "'", rest::binary>>, line, column, pos) do
     value =
       case esc do
         ?n -> "\n"
@@ -251,4 +253,15 @@ defmodule Nova.Compiler.Tokenizer do
   defp consume_identifier(rest, acc, line, column, pos) do
     {acc, rest, column, pos}
   end
+
+  defp consume_hspace(<<" " <> rest>>, line, col, pos),
+    do: consume_hspace(rest, line, col + 1, pos + 1)
+
+  defp consume_hspace(<<"\t" <> rest>>, line, col, pos) do
+    # Tab ⇒ advance to the next 8-column stop (feel free to pick 4 if you prefer)
+    next = col + (8 - rem(col - 1, 8))
+    consume_hspace(rest, line, next, pos + 1)
+  end
+
+  defp consume_hspace(rest, line, col, pos), do: {rest, line, col, pos}
 end
