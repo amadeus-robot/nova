@@ -39,9 +39,18 @@ defmodule Nova.Compiler.Tokenizer do
   end
 
   # Line comment
+  # defp tokenize("--" <> rest, acc, line, column, pos) do
+  #  {rest, new_line, new_column, new_pos} = consume_line_comment(rest, line, column + 2, pos + 2)
+  #  tokenize(rest, acc, new_line, new_column, new_pos)
+  # end
+
   defp tokenize("--" <> rest, acc, line, column, pos) do
-    {rest, new_line, new_column, new_pos} = consume_line_comment(rest, line, column + 2, pos + 2)
-    tokenize(rest, acc, new_line, new_column, new_pos)
+    {rest_after_nl, new_line, new_column, new_pos} =
+      rest
+      |> consume_until_newline(line, column + 2, pos + 2)
+
+    # Start tokenising again *after* the newline
+    tokenize(rest_after_nl, acc, new_line, new_column, new_pos)
   end
 
   # Block comment
@@ -121,6 +130,14 @@ defmodule Nova.Compiler.Tokenizer do
     unrecognized = <<c::utf8>>
     token = %Token{type: :unrecognized, value: unrecognized, line: line, column: column, pos: pos}
     tokenize(rest, [token | acc], line, column + 1, pos + 1)
+  end
+
+  defp consume_until_newline("\n" <> rest, line, _column, pos) do
+    {rest, line + 1, 1, pos + 1}
+  end
+
+  defp consume_until_newline(<<_::utf8, rest::binary>>, line, column, pos) do
+    consume_until_newline(rest, line, column + 1, pos + 1)
   end
 
   # Helpers to consume specific token types

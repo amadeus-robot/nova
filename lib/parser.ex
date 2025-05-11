@@ -150,7 +150,7 @@ defmodule Nova.Compiler.Parser do
   # { head }            – shorthand for field label == bound var
   # { head = h }        – label + explicit pattern
   defp parse_record_field_pattern(tokens) do
-    with {:ok, lbl, tokens} <- parse_identifier(tokens) do
+    with {:ok, lbl, tokens} <- parse_label(tokens) do
       case expect_operator(tokens, "=") do
         {:ok, _, tokens} ->
           with {:ok, pat, tokens} <- parse_pattern(tokens) do
@@ -341,7 +341,7 @@ defmodule Nova.Compiler.Parser do
   defp parse_record_type(_), do: {:error, "Expected record type"}
 
   defp parse_record_field(tokens) do
-    with {:ok, label, tokens} <- parse_identifier(tokens),
+    with {:ok, label, tokens} <- parse_label(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "::"),
          tokens = skip_newlines(tokens),
          {:ok, t, tokens} <- parse_type(tokens) do
@@ -612,10 +612,10 @@ defmodule Nova.Compiler.Parser do
   def parse_binding(tokens) do
     tokens = skip_newlines(tokens)
 
-    with {:ok, name, tokens} <- parse_identifier(tokens),
+    with {:ok, pat, tokens} <- parse_pattern(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "="),
-         {:ok, value, tokens} <- parse_expression(tokens) do
-      {:ok, {name.name, value}, tokens}
+         {:ok, rhs, tokens} <- parse_expression(tokens) do
+      {:ok, {pat, rhs}, tokens}
     else
       {:error, reason} -> {:error, reason}
     end
@@ -955,34 +955,39 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Function application parsing
-  defp parse_application(tokens) do
-    with {:ok, function, tokens} <- parse_term(tokens) do
-      case collect_application_args(tokens, []) do
-        {[], tokens} ->
-          # No arguments found, return just the function
-          {:ok, function, tokens}
+  defp parse_application([%Token{column: base} | _] = toks) do
+    with {:ok, fn_term, rest} <- parse_term(toks) do
+      {args, rest} = collect_application_args(rest, [], base)
 
-        {args, rest} ->
-          # Create a function call with all collected arguments
-          {:ok, %Ast.FunctionCall{function: function, arguments: args}, rest}
+      case args do
+        [] -> {:ok, fn_term, rest}
+        _ -> {:ok, %Ast.FunctionCall{function: fn_term, arguments: args}, rest}
       end
     end
   end
 
   # Helper function to collect all arguments for function application
-  defp collect_application_args([%Token{type: :newline} | _] = tokens, acc) do
-    # stop: newline terminates the lhs expression
-    {acc, tokens}
+  defp collect_application_args([%Token{type: :newline} | rest], acc, base) do
+    rest = skip_newlines(rest)
+
+    case rest do
+      [%Token{column: col} | _] when col > base ->
+        case parse_term(rest) do
+          {:ok, arg, rest2} -> collect_application_args(rest2, acc ++ [arg], base)
+          # something else - abort
+          {:error, _} -> {acc, rest}
+        end
+
+      _ ->
+        # dedent or EOF → application ends
+        {acc, rest}
+    end
   end
 
-  defp collect_application_args(tokens, acc) do
+  defp collect_application_args(tokens, acc, base) do
     case parse_term(tokens) do
-      {:ok, arg, rest} ->
-        collect_application_args(rest, acc ++ [arg])
-
-      {:error, _} ->
-        # no more args
-        {acc, tokens}
+      {:ok, arg, rest} -> collect_application_args(rest, acc ++ [arg], base)
+      {:error, _} -> {acc, tokens}
     end
   end
 
@@ -1097,6 +1102,18 @@ defmodule Nova.Compiler.Parser do
     case tokens do
       [%Token{type: :string, value: value} | rest] -> {:ok, value, rest}
       _ -> {:error, "Expected string literal"}
+    end
+  end
+
+  defp parse_label(tokens) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{type: t, value: name} | rest] when t in [:identifier, :keyword] ->
+        {:ok, %Ast.Identifier{name: name}, rest}
+
+      _ ->
+        {:error, "Expected label"}
     end
   end
 

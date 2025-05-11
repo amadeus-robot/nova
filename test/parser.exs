@@ -341,7 +341,6 @@ defmodule Nova.CompilerTest do
     # No module header – use the mid‑level helper
     {:ok, decls, rest} = Parser.parse_expression(tokens)
 
-    IO.inspect(decls)
     assert rest == []
   end
 
@@ -388,12 +387,63 @@ defmodule Nova.CompilerTest do
     isKeyword str = 2 
     """
 
-    IO.puts(source)
     tokens = Tokenizer.tokenize(source)
 
     # No module header – use the mid‑level helper
     {:ok, decls, rest} = Parser.parse_declarations(tokens)
 
     assert rest == []
+  end
+
+  test "parse multiple type alias" do
+    source = """
+    type Token =
+        { type :: TokenType
+        , value :: String
+        , line :: Int
+        , column :: Int
+        , pos :: Int
+        }
+    """
+
+    tokens = Tokenizer.tokenize(source)
+
+    # No module header – use the mid‑level helper
+    {:ok, decls, _rest} = Parser.parse_declarations(tokens)
+
+    assert [%Nova.Compiler.Ast.TypeAlias{name: "Token"}] = decls
+  end
+
+  test "case and let in" do
+    source = ~s|
+tokenize_ source tokens pos =
+      case head of
+--        ' ' ->
+--          let newPos = { line: pos.line, column: pos.column + 1, pos: pos.pos + 1 }
+        _ ->
+          if take 2 source == "--" then
+            let { newSource, newPos } = consumeLineComment (drop 2 source) { line: pos.line, column: pos.column + 2, pos: pos.pos + 2 }
+            in tokenize_ newSource tokens newPos
+          else
+            1
+   
+x = 1
+    |
+
+    tokens = Tokenizer.tokenize(source)
+
+    # No module header – use the mid‑level helper
+    {:ok, decls, _rest} = Parser.parse_declarations(tokens)
+
+    assert [_, _] = decls
+  end
+
+  test "code after -- is ignored" do
+    src = "x = 1  -- y = '☹'\n y = 2"
+    toks = Tokenizer.tokenize(src)
+
+    assert Enum.any?(toks, &(&1.type == :identifier and &1.value == "x"))
+    refute Enum.any?(toks, &(&1.value == "☹"))
+    assert Enum.any?(toks, &(&1.type == :identifier and &1.value == "y" and &1.line == 2))
   end
 end
