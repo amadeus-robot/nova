@@ -98,12 +98,24 @@ defmodule Nova.Compiler.Parser do
     tokens = drop_newlines(tokens)
 
     with {:ok, _, tokens} <- expect_keyword(tokens, "import"),
-         {:ok, mod, tokens} <- parse_qualified_identifier(tokens) do
-      {:ok, %Ast.ImportDeclaration{module: mod, imports: []}, tokens}
+         {:ok, mod, tokens} <- parse_qualified_identifier(tokens),
+         {:ok, imps, tokens} <- parse_optional_import_list(tokens) do
+      {:ok, %Ast.ImportDeclaration{module: mod, imports: imps}, tokens}
     else
       other -> other
     end
   end
+
+  # (foo, bar, baz)  →  ["foo", "bar", "baz"]
+  defp parse_optional_import_list([%Token{type: :delimiter, value: "("} | rest]) do
+    with {:ok, names, rest} <-
+           parse_separated(&parse_identifier/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, ")") do
+      {:ok, Enum.map(names, & &1.name), rest}
+    end
+  end
+
+  defp parse_optional_import_list(tokens), do: {:ok, [], tokens}
 
   # ------------------------------------------------------------
   #  Foreign import (elixir)

@@ -53,6 +53,33 @@ defmodule Nova.Compiler.CodeGen do
   # Declarations
   # ─────────────────────────────────────────────────────────────
 
+  defp compile_decl(
+         %Ast.ImportDeclaration{
+           module: %Ast.Identifier{name: "Effect.Console"},
+           imports: imps
+         } = _imp
+       ) do
+    # was log requested?
+    if Enum.any?(imps, fn
+         %Ast.Identifier{name: "log"} -> true
+         "log" -> true
+         :log -> true
+         _ -> false
+       end) do
+      """
+      # Effect.Console.log – prints the value and threads it through
+      def log(value) do
+        IO.inspect(value, label: "log")
+        value
+      end
+      """
+      |> String.trim()
+    else
+      # only other symbols imported → ignore
+      ""
+    end
+  end
+
   defp compile_decl(%Ast.FunctionDeclaration{} = fun), do: compile_fun(fun)
   defp compile_decl(%Ast.ForeignImport{} = fi), do: gen_foreign(fi)
   # We ignore type/class declarations for now – they don't have Elixir code‑gen impact
@@ -122,7 +149,7 @@ defmodule Nova.Compiler.CodeGen do
   defp compile_expr(%Ast.LetBinding{bindings: bs, body: body}) do
     assigns =
       bs
-      |> Enum.map(fn {name, value} -> "#{name} = #{compile_expr(value)}" end)
+      |> Enum.map(fn {name, value} -> "#{name.name} = #{compile_expr(value)}" end)
       |> Enum.join(";\n")
 
     """
