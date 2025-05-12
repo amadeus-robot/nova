@@ -26,7 +26,7 @@ defmodule Nova.IntegrationPipelineTest do
         ────── TOKENS ───────────────────────────────────────────────────
         #{pretty_tokens}
         """)
- 
+
       {:ok, ast, []} ->
         # If you already wired the type-checker, uncomment:
         # {:ok, _env} = Nova.Compiler.TypeChecker.check_module(ast)

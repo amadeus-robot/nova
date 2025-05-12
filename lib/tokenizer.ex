@@ -113,7 +113,6 @@ defmodule Nova.Compiler.Tokenizer do
 
     type = if identifier in @keywords, do: :keyword, else: :identifier
     token = %Token{type: type, value: identifier, line: line, column: column, pos: pos}
-
     tokenize(rest, [token | acc], line, new_column, new_pos)
   end
 
@@ -130,6 +129,13 @@ defmodule Nova.Compiler.Tokenizer do
     unrecognized = <<c::utf8>>
     token = %Token{type: :unrecognized, value: unrecognized, line: line, column: column, pos: pos}
     tokenize(rest, [token | acc], line, column + 1, pos + 1)
+  end
+
+  # Allow ' inside an identifier
+  defp consume_identifier(<<c::utf8, rest::binary>>, acc, line, column, pos)
+       when (c >= ?a and c <= ?z) or (c >= ?A and c <= ?Z) or
+              (c >= ?0 and c <= ?9) or c in [?_, ?'] do
+    consume_identifier(rest, acc <> <<c::utf8>>, line, column + 1, pos + 1)
   end
 
   defp consume_until_newline("\n" <> rest, line, _column, pos) do
