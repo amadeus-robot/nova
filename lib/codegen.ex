@@ -56,7 +56,7 @@ defmodule Nova.Compiler.CodeGen do
   defp compile_decl(
          %Ast.ImportDeclaration{
            module: %Ast.Identifier{name: "Effect.Console"},
-           imports: imps
+           items: imps
          } = _imp
        ) do
     # was log requested?

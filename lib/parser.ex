@@ -101,40 +101,82 @@ defmodule Nova.Compiler.Parser do
 
     with {:ok, _, tokens} <- expect_keyword(tokens, "import"),
          {:ok, mod, tokens} <- parse_qualified_identifier(tokens),
-         # ---------- optional  "as Alias"  ----------
-         {alias_name, tokens} <- parse_import_alias(tokens),
-
-         # ---------- optional  "(foo, bar)" ----------
-         {:ok, imps, tokens} <-
-           parse_optional_import_list(tokens) do
-      {:ok, %Ast.ImportDeclaration{module: mod, alias: alias_name, imports: imps}, tokens}
-    else
-      other -> other
+         {alias, tokens} <- parse_import_alias(tokens),
+         {:ok, items, hiding?, tokens} <- parse_import_selectors(tokens) do
+      {:ok,
+       %Ast.ImportDeclaration{
+         module: mod,
+         alias: alias,
+         items: items,
+         hiding?: hiding?
+       }, drop_newlines(tokens)}
     end
   end
 
-  def parse_import_alias(tokens) do
-    case(tokens) do
-      [%Token{type: :identifier, value: "as"} | rest] ->
-        with {:ok, al, rest} <- parse_identifier(rest) do
-          {al.name, rest}
-        end
+  # as  <ident>
+  defp parse_import_alias([%Token{type: :identifier, value: "as"} | rest]) do
+    with {:ok, id, rest} <- parse_identifier(rest) do
+      {id.name, rest}
+    end
+  end
+
+  defp parse_import_alias(tokens), do: {nil, tokens}
+
+  #    ("(" … ")" | "hiding" "(" … ")" | ε)
+  defp parse_import_selectors([%Token{type: :identifier, value: "hiding"} | rest]) do
+    with {:ok, items, rest} <- parse_paren_import_list(rest) do
+      {:ok, items, true, rest}
+    end
+  end
+
+  defp parse_import_selectors(tokens) do
+    case parse_paren_import_list(tokens) do
+      {:ok, items, rest} -> {:ok, items, false, rest}
+      {:error, _} -> {:ok, [], false, tokens}
+    end
+  end
+
+  # "(" ImportList ")"
+  defp parse_paren_import_list([%Token{type: :delimiter, value: "("} | rest]) do
+    with {:ok, items, rest} <-
+           parse_separated(&parse_import_item/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, ")") do
+      {:ok, items, rest}
+    end
+  end
+
+  defp parse_paren_import_list(_), do: {:error, "no paren import list"}
+
+  # Foo | Foo(..) | Foo(Bar,Baz)
+  defp parse_import_item(tokens) do
+    with {:ok, first, tokens} <- parse_identifier(tokens) do
+      case tokens do
+        [%Token{type: :delimiter, value: "("} | _] ->
+          # keep the "(" so parse_constructors/2 matches its head clause
+          parse_constructors(tokens, first.name)
+
+        _ ->
+          {:ok, first.name, tokens}
+      end
+    end
+  end
+
+  defp parse_constructors([%Token{type: :delimiter, value: "("} | rest], mod) do
+    case rest do
+      [%Token{type: :operator, value: "."}, %Token{type: :operator, value: "."} | rest2] ->
+        {:ok, {mod, :all}, expect_delimiter(rest2, ")") |> elem(2)}
+
+      [%Token{type: :operator, value: ".."} | rest2] ->
+        {:ok, {mod, :all}, expect_delimiter(rest2, ")") |> elem(2)}
 
       _ ->
-        {nil, tokens}
+        with {:ok, ctors, rest2} <-
+               parse_separated(&parse_identifier/1, &expect_delimiter(&1, ","), rest),
+             {:ok, _, rest3} <- expect_delimiter(rest2, ")") do
+          {:ok, {mod, Enum.map(ctors, & &1.name)}, rest3}
+        end
     end
   end
-
-  # (foo, bar, baz)  →  ["foo", "bar", "baz"]
-  defp parse_optional_import_list([%Token{type: :delimiter, value: "("} | rest]) do
-    with {:ok, names, rest} <-
-           parse_separated(&parse_identifier/1, &expect_delimiter(&1, ","), rest),
-         {:ok, _, rest} <- expect_delimiter(rest, ")") do
-      {:ok, Enum.map(names, & &1.name), rest}
-    end
-  end
-
-  defp parse_optional_import_list(tokens), do: {:ok, [], tokens}
 
   # ------------------------------------------------------------
   #  Foreign import (elixir)

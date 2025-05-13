@@ -37,8 +37,22 @@ defmodule Nova.Compiler.Ast do
     defstruct [:name, :fields]
   end
 
+  # Represent each import item as
+
+  # String.t() – plain identifier (log)
+
+  # {mod, :all} – data-constructor wildcard (Foo(..))
+
+  # {mod, [ctor1, ctor2]} – explicit ctor list (Foo(Bar,Baz)).
+
   defmodule ImportDeclaration do
-    defstruct [:module, :imports, alias: nil]
+    defstruct module: nil,
+              # "P" in `import Prelude as P`
+              alias: nil,
+              # ["log"] or [{"Foo", :all}] …
+              items: [],
+              # true when the keyword 'hiding' is present
+              hiding?: false
   end
 
   defmodule ForeignImport do

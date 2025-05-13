@@ -3,6 +3,7 @@ defmodule Nova.CompilerTest do
 
   alias Nova.Compiler.Tokenizer
   alias Nova.Compiler.Parser
+  alias Nova.Compiler.Ast
 
   @moduledoc """
   Regression tests for Nova.Compiler's tokenizer and parser.
@@ -26,6 +27,20 @@ defmodule Nova.CompilerTest do
 
       {:error, reason} ->
         flunk("parse_module failed: #{inspect(reason)}")
+    end
+  end
+
+  defp parse_decl!(code) do
+    case Parser.parse_declaration(Tokenizer.tokenize(code)) do
+      {:ok, ast, []} ->
+        ast
+
+      {:ok, ast, rest} ->
+        ast
+        flunk("parse_declaration failed: unparsed tokens: #{inspect(rest)}")
+
+      {:error, reason} ->
+        flunk("parse_declaration failed: #{inspect(reason)}")
     end
   end
 
@@ -445,5 +460,33 @@ x = 1
     assert Enum.any?(toks, &(&1.type == :identifier and &1.value == "x"))
     refute Enum.any?(toks, &(&1.value == "☹"))
     assert Enum.any?(toks, &(&1.type == :identifier and &1.value == "y" and &1.line == 2))
+  end
+
+  test "parses constructor wildcard imports" do
+    src = "import B (Foo(..))\n"
+
+    %Ast.ImportDeclaration{module: %Ast.Identifier{name: "B"}, items: [{"Foo", :all}]} =
+      parse_decl!(src)
+  end
+
+  test "parses hiding lists" do
+    src = "import Prelude hiding (unsafeCoerce)\n"
+    %Ast.ImportDeclaration{hiding?: true, items: ["unsafeCoerce"]} = parse_decl!(src)
+  end
+
+  test "parses alias + selector" do
+    src = "import A as X (foo)\n"
+    %Ast.ImportDeclaration{alias: "X", items: ["foo"]} = parse_decl!(src)
+  end
+
+  test "multiple imports" do
+    src = "
+import A.B.C
+import A.B.C as ABC
+import A.B.C (foo, bar, Baz(..))
+import Prelude hiding (unsafeCoerce)
+import X as Y (foo)            -- alias + selector
+"
+    _ = parse_decl!(src)
   end
 end
