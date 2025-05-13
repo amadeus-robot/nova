@@ -38,7 +38,7 @@ defmodule Nova.Compiler.Ast do
   end
 
   defmodule ImportDeclaration do
-    defstruct [:module, :imports]
+    defstruct [:module, :imports, alias: nil]
   end
 
   defmodule ForeignImport do
@@ -110,9 +110,14 @@ defmodule Nova.Compiler.Ast do
     defstruct [:op, :expression]
   end
 
+  defmodule ForAllType do
+    # vars :: [String.t()],  type :: Ast.t()
+    defstruct [:vars, :type]
+  end
+
   defmodule RecordType do
-    # [{label :: String.t(), type :: t()}]
-    defstruct [:fields]
+    # row :: :empty | {:var, String.t()} | :wild
+    defstruct [:fields, :row]
   end
 
   defmodule RecordPattern do

@@ -24,7 +24,7 @@ defmodule Nova.IntegrationPipelineTest do
         #{String.trim_trailing(source)}
 
         ────── TOKENS ───────────────────────────────────────────────────
-        #{pretty_tokens}
+        #{inspect(hd(t))}
         """)
 
       {:ok, ast, []} ->
@@ -54,8 +54,6 @@ defmodule Nova.IntegrationPipelineTest do
         ────── SOURCE ───────────────────────────────────────────────────
         #{String.trim_trailing(source)}
 
-        ────── TOKENS ───────────────────────────────────────────────────
-        #{pretty_tokens}
         """)
     end
   end
@@ -63,10 +61,11 @@ defmodule Nova.IntegrationPipelineTest do
   {:ok, files} = File.ls("tests/passing/")
 
   Enum.map(files, fn name ->
-    test name do
-      src = File.read!("tests/passing/#{unquote(name)}")
-
-      assert compile_and_eval(src) == "Done"
+    if !File.dir?("tests/passing/#{name}") do
+      test name do
+        src = File.read!("tests/passing/#{unquote(name)}")
+        assert compile_and_eval(src) == "Done"
+      end
     end
   end)
 end

@@ -53,6 +53,8 @@ defmodule Nova.Compiler.Parser do
   def parse_declarations([], acc), do: {:ok, Enum.reverse(acc), []}
 
   def parse_declarations(tokens, acc) do
+    tokens = skip_newlines(tokens)
+
     case parse_declaration(tokens) do
       {:ok, decl, rest} -> parse_declarations(rest, [decl | acc])
       {:error, _} when acc != [] -> {:ok, Enum.reverse(acc), tokens}
@@ -99,10 +101,27 @@ defmodule Nova.Compiler.Parser do
 
     with {:ok, _, tokens} <- expect_keyword(tokens, "import"),
          {:ok, mod, tokens} <- parse_qualified_identifier(tokens),
-         {:ok, imps, tokens} <- parse_optional_import_list(tokens) do
-      {:ok, %Ast.ImportDeclaration{module: mod, imports: imps}, tokens}
+         # ---------- optional  "as Alias"  ----------
+         {alias_name, tokens} <- parse_import_alias(tokens),
+
+         # ---------- optional  "(foo, bar)" ----------
+         {:ok, imps, tokens} <-
+           parse_optional_import_list(tokens) do
+      {:ok, %Ast.ImportDeclaration{module: mod, alias: alias_name, imports: imps}, tokens}
     else
       other -> other
+    end
+  end
+
+  def parse_import_alias(tokens) do
+    case(tokens) do
+      [%Token{type: :identifier, value: "as"} | rest] ->
+        with {:ok, al, rest} <- parse_identifier(rest) do
+          {al.name, rest}
+        end
+
+      _ ->
+        {nil, tokens}
     end
   end
 
@@ -305,8 +324,18 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Type parsing
-  defp parse_type(tokens) do
-    parse_function_type(tokens)
+  defp parse_type([%Token{type: :identifier, value: "forall"} | _] = toks),
+    do: parse_forall_type(toks)
+
+  defp parse_type(toks), do: parse_function_type(toks)
+
+  # forall a b.  ty
+  defp parse_forall_type([%Token{value: "forall"} | rest]) do
+    with {:ok, vars, rest} <- parse_many(&parse_identifier/1, rest),
+         {:ok, _, rest} <- expect_operator(rest, "."),
+         {:ok, ty, rest} <- parse_type(rest) do
+      {:ok, %Ast.ForAllType{vars: Enum.map(vars, & &1.name), type: ty}, rest}
+    end
   end
 
   defp parse_type_alias(tokens) do
@@ -408,6 +437,24 @@ defmodule Nova.Compiler.Parser do
 
   # Modified to fix the application type parsing
   defp parse_basic_type(tokens) do
+    case parse_qualified_identifier(tokens) do
+      {:ok, qid, rest} ->
+        # Gather any type arguments that follow the qualified name
+        case parse_many(&parse_type_atom/1, rest) do
+          {:ok, [], ^rest} ->
+            {:ok, qid, rest}
+
+          {:ok, args, new_rest} ->
+            {:ok, %Ast.FunctionCall{function: qid, arguments: args}, new_rest}
+        end
+
+      # fall back to the old rules
+      _ ->
+        parse_basic_type_fallback(tokens)
+    end
+  end
+
+  defp parse_basic_type_fallback(tokens) do
     case tokens do
       [%Token{type: :identifier, value: name} | rest] ->
         # Parse type arguments if any

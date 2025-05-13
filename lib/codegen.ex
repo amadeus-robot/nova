@@ -89,11 +89,12 @@ defmodule Nova.Compiler.CodeGen do
   # Functions
   # ─────────────────────────────────────────────────────────────
   defp compile_fun(%Ast.FunctionDeclaration{name: name, parameters: ps, body: body}) do
+    sane_name = sanitize_name(name)
     args = ps |> Enum.map(&compile_pattern/1) |> Enum.join(", ")
     body_code = compile_expr(body) |> indent(2)
 
     """
-    def #{name}(#{args}) do
+    def #{sane_name}(#{args}) do
     #{body_code}
     end
     """
@@ -109,7 +110,7 @@ defmodule Nova.Compiler.CodeGen do
   defp compile_expr(%Ast.Literal{type: :char, value: v}), do: "?#{v}"
 
   # Identifier
-  defp compile_expr(%Ast.Identifier{name: n}), do: n
+  defp compile_expr(%Ast.Identifier{name: n}), do: sanitize_name(n)
 
   defp compile_expr(%Ast.BinaryOp{op: "++", left: l, right: r}) do
     operator = if string_typed?(l) or string_typed?(r), do: "<>", else: "++"
@@ -149,7 +150,7 @@ defmodule Nova.Compiler.CodeGen do
   defp compile_expr(%Ast.LetBinding{bindings: bs, body: body}) do
     assigns =
       bs
-      |> Enum.map(fn {name, value} -> "#{name.name} = #{compile_expr(value)}" end)
+      |> Enum.map(fn {name, value} -> "#{sanitize_name(name.name)} = #{compile_expr(value)}" end)
       |> Enum.join(";\n")
 
     """
@@ -211,10 +212,11 @@ defmodule Nova.Compiler.CodeGen do
        }) do
     arity = count_params(ts.type)
     args = for i <- 1..arity, do: "arg#{i}"
+    sane_name = sanitize_name(name)
 
     """
     # foreign import #{mod}.#{fun}/#{arity}
-    def #{name}(#{Enum.join(args, ", ")}) do
+    def #{sane_name}(#{Enum.join(args, ", ")}) do
       apply(:'#{mod}', :'#{String.to_atom(fun)}', [#{Enum.join(args, ", ")}])
     end
     """
@@ -223,7 +225,7 @@ defmodule Nova.Compiler.CodeGen do
   # ─────────────────────────────────────────────────────────────
   # Patterns – re‑using expression compiler for now
   # ─────────────────────────────────────────────────────────────
-  defp compile_pattern(%Ast.Identifier{name: n}), do: n
+  defp compile_pattern(%Ast.Identifier{name: n}), do: sanitize_name(n)
   defp compile_pattern(%Ast.Literal{} = lit), do: compile_expr(lit)
 
   defp compile_pattern(%Ast.Tuple{elements: es}),
@@ -248,6 +250,9 @@ defmodule Nova.Compiler.CodeGen do
       line -> pad <> line
     end)
   end
+
+  # Replace prime (') with _prima to create valid Elixir identifiers
+  defp sanitize_name(name) when is_binary(name), do: String.replace(name, "'", "_prima")
 
   # A Nova module name may arrive as an `Ast.Identifier` or a raw string.
   # Convert it to a valid Elixir module name string.
