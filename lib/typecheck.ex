@@ -95,7 +95,13 @@ defmodule Nova.Compiler.TypeChecker do
   def check_declaration(%Ast.TypeClassInstance{} = inst, env), do: {:ok, inst, env}
 
   # ── Foreign imports / Plain imports (ignored by TC) ────────────────────────
-  def check_declaration(%Ast.ForeignImport{} = imp, env), do: {:ok, imp, env}
+  def check_declaration(
+        %Ast.ForeignImport{} = imp,
+        env
+      ) do
+    {:ok, imp, env}
+  end
+
   def check_declaration(%Ast.ImportDeclaration{} = imp, env), do: {:ok, imp, env}
 
   # ── Fallback ───────────────────────────────────────────────────────────────
@@ -407,37 +413,42 @@ defmodule Nova.Compiler.TypeChecker do
     Types.Subst.s_apply(sub, t)
   end
 
-  defp convert_type(%Ast.Identifier{name: n}), do: Types.TCon.new(String.to_atom(n))
+  defp convert_type(ast), do: convert_type(ast, %{})
 
-  defp convert_type(%Ast.BinaryOp{op: "->", left: a, right: b}),
-    do: Types.t_arrow(convert_type(a), convert_type(b))
-
-  defp convert_type(%Ast.FunctionCall{function: %Ast.Identifier{name: "[]"}, arguments: [el]}),
-    do: Types.t_list(convert_type(el))
-
-  defp convert_type(%Ast.Tuple{elements: els}), do: Types.t_tuple(Enum.map(els, &convert_type/1))
-
-  defp convert_type(%Ast.ForAllType{vars: vs, type: t}) do
-    base = convert_type(t)
-    # Wrap explicitly quantified vars into a Scheme then unwrap into TCon with meta –
-    # Nova doesn't yet expose explicit ∀ at runtime, so we simply preserve type
-    Scheme.new(Enum.map(vs, &Types.TVar.fresh/1), base).type
-  end
-
-  defp convert_type(%Ast.RecordType{fields: fields, row: :empty}) do
-    tfs = Enum.map(fields, fn {lbl, ty_ast} -> {lbl, convert_type(ty_ast)} end)
-    Types.t_record(tfs, :empty)
-  end
-
-  defp convert_type(%Ast.FunctionCall{function: fun_ast, arguments: arg_asts} = app) do
-    case convert_type(fun_ast) do
-      %Types.TCon{name: name, args: prev_args} ->
-        Types.TCon.new(name, prev_args ++ Enum.map(arg_asts, &convert_type/1))
-
-      other ->
-        raise("Cannot apply non-constructor #{inspect(other)} in #{inspect(app)}")
+  # Main worker – threads `var_ctx` so we can resolve bound variables
+  defp convert_type(%Ast.Identifier{name: n}, ctx) do
+    case Map.get(ctx, n) do
+      nil -> Types.TCon.new(String.to_atom(n))
+      tvar -> tvar
     end
   end
 
-  defp convert_type(other), do: raise("Unsupported type syntax #{inspect(other)}")
+  defp convert_type(%Ast.BinaryOp{op: "->", left: a, right: b}, ctx),
+    do: Types.t_arrow(convert_type(a, ctx), convert_type(b, ctx))
+
+  # Special list sugar – `[] a` emitted by the parser for list types
+  defp convert_type(
+         %Ast.FunctionCall{function: %Ast.Identifier{name: "[]"}, arguments: [el]},
+         ctx
+       ),
+       do: Types.t_list(convert_type(el, ctx))
+
+  # Generic **type application** – e.g. `List a`, `Either e a`, …
+  defp convert_type(%Ast.FunctionCall{function: fun_ast, arguments: arg_asts} = call, ctx) do
+    case convert_type(fun_ast, ctx) do
+      %Types.TCon{name: name, args: prev} ->
+        args = Enum.map(arg_asts, &convert_type(&1, ctx))
+        Types.TCon.new(name, prev ++ args)
+
+      other ->
+        raise("Cannot apply non‑constructor #{inspect(other)} in #{inspect(call)}")
+    end
+  end
+
+  # Tuples
+  defp convert_type(%Ast.Tuple{elements: els}, ctx),
+    do: Types.t_tuple(Enum.map(els, &convert_type(&1, ctx)))
+
+  # Anything else is a bug for now
+  defp convert_type(other, _), do: raise("Unsupported type syntax #{inspect(other)}")
 end
