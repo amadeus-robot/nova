@@ -80,6 +80,7 @@ defmodule Nova.Compiler.Parser do
             parse_any(
               [
                 &parse_import/1,
+                &parse_foreign_import_simple/1,
                 &parse_foreign_import/1,
                 &parse_data_declaration/1,
                 &parse_type_alias/1,
@@ -181,6 +182,32 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   #  Foreign import (elixir)
   # ------------------------------------------------------------
+  defp parse_foreign_import_simple(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "foreign"),
+         {:ok, _, tokens} <- expect_keyword(tokens, "import"),
+         {:ok, name, tokens} <- parse_identifier(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "::"),
+         {:ok, type, tokens} <- parse_type(tokens) do
+      {:ok,
+       %Ast.ForeignImport{
+         # not specified
+         module: nil,
+         # not specified
+         function: nil,
+         # the identifier itself
+         alias: name.name,
+         type_signature: %Ast.TypeSignature{
+           name: name.name,
+           type_vars: [],
+           constraints: [],
+           type: type
+         }
+       }, drop_newlines(tokens)}
+    else
+      _ -> {:error, "plain foreign import parse failed"}
+    end
+  end
+
   defp parse_foreign_import(tokens) do
     tokens = drop_newlines(tokens)
 
@@ -276,39 +303,108 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  # Type class declaration
-  defp parse_type_class(tokens) do
-    with {:ok, _, tokens} <- expect_keyword(tokens, "class"),
-         {:ok, class_name, tokens} <- parse_identifier(tokens),
-         {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens),
-         {:ok, _, tokens} <- expect_keyword(tokens, "where"),
-         {:ok, methods, tokens} <- parse_many(&parse_type_signature/1, tokens) do
-      {:ok,
-       %Ast.TypeClass{
-         name: class_name.name,
-         type_vars: Enum.map(type_vars, fn var -> var.name end),
-         methods: methods
-       }, tokens}
-    else
-      {:error, reason} -> {:error, reason}
+  # Skip superclass constraints in a `class` declaration – everything
+  # up to (and including) the first "<=" operator is treated as
+  # constraints and ignored for now. Returns `{rest, constraints_tokens}`.
+  defp skip_superclass_constraints(tokens) do
+    tokens = skip_newlines(tokens)
+
+    {before, after_} =
+      Enum.split_while(tokens, fn
+        %Token{type: :operator, value: "<="} -> false
+        _ -> true
+      end)
+
+    case after_ do
+      [%Token{type: :operator, value: "<="} | rest] -> {rest, before}
+      _ -> {tokens, []}
     end
   end
 
-  # Type class instance
+  # Drop leading instance constraints – identical idea but we only
+  # need the remainder of the tokens (constraints are ignored for now).
+  defp drop_instance_constraints(tokens) do
+    {_before, after_} =
+      Enum.split_while(tokens, fn
+        %Token{type: :operator, value: "<="} -> false
+        _ -> true
+      end)
+
+    case after_ do
+      [%Token{type: :operator, value: "<="} | rest] -> rest
+      _ -> tokens
+    end
+  end
+
+  # ────────────────────────────────────────────────────
+  # UPDATED PARSERS
+  # ────────────────────────────────────────────────────
+  # Supports superclass constraints:  
+  #   class (Applicative m, Bind m) <= Monad m where …
+  defp parse_type_class(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "class") do
+      {tokens, _constraints} = skip_superclass_constraints(tokens)
+
+      with {:ok, class_name, tokens} <- parse_identifier(tokens),
+           {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens),
+           {:ok, _, tokens} <- expect_keyword(tokens, "where"),
+           {:ok, methods, tokens} <- parse_many(&parse_type_signature/1, tokens) do
+        {:ok,
+         %Ast.TypeClass{
+           name: class_name.name,
+           type_vars: Enum.map(type_vars, & &1.name),
+           methods: methods
+         }, tokens}
+      end
+    end
+  end
+
+  # Handles both named and unnamed instances, with optional constraints:
+  #   instance showString :: Show String where …
+  #   instance (Eq a) <= Show a where …
   defp parse_type_class_instance(tokens) do
-    with {:ok, _, tokens} <- expect_keyword(tokens, "instance"),
-         {:ok, class_name, tokens} <- parse_identifier(tokens),
-         {:ok, type, tokens} <- parse_type(tokens),
-         {:ok, _, tokens} <- expect_keyword(tokens, "where"),
-         {:ok, methods, tokens} <- parse_many(&parse_function_declaration/1, tokens) do
-      {:ok,
-       %Ast.TypeClassInstance{
-         class_name: class_name.name,
-         type: type,
-         methods: methods
-       }, tokens}
-    else
-      {:error, reason} -> {:error, reason}
+    with {:ok, _, tokens} <- expect_keyword(tokens, "instance") do
+      tokens = drop_newlines(tokens)
+
+      case tokens do
+        # ── Named instance – starts with ident followed by '::' ──
+        [%Token{type: :identifier, value: inst_name}, %Token{type: :operator, value: "::"} | rest] ->
+          rest = drop_instance_constraints(rest)
+
+          with {:ok, type_ast, tokens} <- parse_type(rest),
+               {:ok, _, tokens} <- expect_keyword(tokens, "where"),
+               {:ok, methods, tokens} <- parse_many(&parse_function_declaration/1, tokens) do
+            class_name =
+              case type_ast do
+                %Ast.FunctionCall{function: %Ast.Identifier{name: cn}} -> cn
+                %Ast.Identifier{name: cn} -> cn
+                _ -> inst_name
+              end
+
+            {:ok,
+             %Ast.TypeClassInstance{
+               class_name: class_name,
+               type: type_ast,
+               methods: methods
+             }, tokens}
+          end
+
+        # ── Unnamed instance – old syntax: Class Type where … ──
+        _ ->
+          tokens = drop_instance_constraints(tokens)
+
+          with {:ok, class_name, tokens} <- parse_identifier(tokens),
+               {:ok, type_ast, tokens} <- parse_type(tokens),
+               {:ok, _, tokens} <- expect_keyword(tokens, "where"),
+               {:ok, methods, tokens} <- parse_many(&parse_function_declaration/1, tokens) do
+            {:ok,
+             %Ast.TypeClassInstance{
+               class_name: class_name.name,
+               type: type_ast,
+               methods: methods
+             }, tokens}
+          end
+      end
     end
   end
 
@@ -1065,6 +1161,10 @@ defmodule Nova.Compiler.Parser do
         _ -> {:ok, %Ast.FunctionCall{function: fn_term, arguments: args}, rest}
       end
     end
+  end
+
+  defp parse_application([]) do
+    {:error, :no_tokens_remaining}
   end
 
   # Helper function to collect all arguments for function application
