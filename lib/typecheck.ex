@@ -1,319 +1,397 @@
-defmodule Nova.Compiler.Types do
-  @moduledoc """
-  Core type representations used by the Hindley‑Milner type‑checker.
-  """
-
-  # A type variable is identified by an integer id (for fast comparisons)
-  defmodule TVar do
-    defstruct [:id, :name]
-    def new(id, name), do: %__MODULE__{id: id, name: name}
-  end
-
-  # A concrete type constructor with zero or more parameters
-  defmodule TCon do
-    defstruct [:name, :args]
-    def new(name, args \\ []), do: %__MODULE__{name: name, args: args}
-  end
-
-  @type t :: TVar.t() | TCon.t()
-
-  # Convenience helpers for the common built‑ins
-  def t_int, do: TCon.new(:Int)
-  def t_string, do: TCon.new(:String)
-  def t_char, do: TCon.new(:Char)
-  def t_bool, do: TCon.new(:Bool)
-  def t_list(el), do: TCon.new(:List, [el])
-  def t_tuple(list), do: TCon.new({:Tuple, length(list)}, list)
-  def t_arrow(a, b), do: TCon.new(:Fun, [a, b])
-
-  # ---------------------------------------------------------------------------
-  # Substitutions (Map from TVar.id => Types.t())
-  # ---------------------------------------------------------------------------
-  defmodule Subst do
-    @type t :: %{optional(integer()) => Nova.Compiler.Types.t()}
-    def new, do: %{}
-
-    def lookup(sub, %TVar{id: id} = v), do: Map.get(sub, id, v)
-    def lookup(_sub, t), do: t
-
-    def single(%TVar{id: id}, t), do: %{id => t}
-
-    def compose(s1, s2),
-      do: Map.merge(Enum.into(s2, %{}, fn {k, v} -> {k, s_apply(s1, v)} end), s1)
-
-    def s_apply(sub, %TVar{} = v), do: lookup(sub, v)
-
-    def s_apply(sub, %TCon{args: args} = c) do
-      %TCon{c | args: Enum.map(args, &s_apply(sub, &1))}
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Type Schemes (∀ quantified vars . type)
-  # ---------------------------------------------------------------------------
-  defmodule Scheme do
-    defstruct [:vars, :type]
-    def new(vars, type), do: %__MODULE__{vars: vars, type: type}
-  end
-
-  # ---------------------------------------------------------------------------
-  # Environment mapping identifiers -> Scheme
-  # ---------------------------------------------------------------------------
-  defmodule Env do
-    defstruct [:m, :counter]
-    def empty, do: %__MODULE__{m: %{}, counter: 0}
-
-    def extend(%__MODULE__{m: m} = e, name, scheme),
-      do: %__MODULE__{e | m: Map.put(m, name, scheme)}
-
-    def lookup(%__MODULE__{m: m}, name), do: Map.fetch(m, name)
-
-    def fresh_var(%__MODULE__{counter: c} = e, hint \\ "t") do
-      {TVar.new(c, String.to_atom(hint <> Integer.to_string(c))), %__MODULE__{e | counter: c + 1}}
-    end
-  end
-
-  # ---------------------------------------------------------------------------
-  # Utility functions
-  # ---------------------------------------------------------------------------
-  def free_type_vars(%TVar{} = v), do: MapSet.new([v.id])
-
-  def free_type_vars(%TCon{args: args}),
-    do: Enum.reduce(args, MapSet.new(), fn t, acc -> MapSet.union(acc, free_type_vars(t)) end)
-
-  def free_type_vars_scheme(%Scheme{vars: q, type: t}) do
-    MapSet.difference(free_type_vars(t), MapSet.new(Enum.map(q, & &1.id)))
-  end
-
-  def free_type_vars_env(%Env{m: m}) do
-    m
-    |> Map.values()
-    |> Enum.reduce(MapSet.new(), fn s, acc -> MapSet.union(acc, free_type_vars_scheme(s)) end)
-  end
-end
-
-# ============================================================================
-# Unification
-# ============================================================================
-
-defmodule Nova.Compiler.Unify do
-  alias Nova.Compiler.Types.{TVar, TCon, Subst}
-
-  @spec unify(Types.t(), Types.t()) :: {:ok, Subst.t()} | {:error, String.t()}
-  def unify(a, b), do: do_unify(a, b, Subst.new())
-
-  defp do_unify(%TVar{id: i} = v, t, s) do
-    case Subst.lookup(s, v) do
-      ^v -> bind(i, t, s)
-      t2 -> do_unify(t2, t, s)
-    end
-  end
-
-  defp do_unify(t, %TVar{} = v, s), do: do_unify(v, t, s)
-
-  defp do_unify(%TCon{name: n1, args: a1}, %TCon{name: n2, args: a2}, s)
-       when n1 == n2 and length(a1) == length(a2) do
-    Enum.zip(a1, a2)
-    |> Enum.reduce_while({:ok, s}, fn {x, y}, {:ok, sub} ->
-      case do_unify(Subst.s_apply(sub, x), Subst.s_apply(sub, y), sub) do
-        {:ok, sub2} -> {:cont, {:ok, sub2}}
-        err -> {:halt, err}
-      end
-    end)
-  end
-
-  defp do_unify(t1, t2, _s), do: {:error, "Cannot unify #{inspect(t1)} with #{inspect(t2)}"}
-
-  defp occurs?(i, %TVar{id: j}), do: i == j
-  defp occurs?(i, %TCon{args: args}), do: Enum.any?(args, &occurs?(i, &1))
-
-  defp bind(i, t, _s) when is_struct(t, TVar) and t.id == i, do: {:ok, Subst.new()}
-
-  defp bind(i, t, _s) do
-    cond do
-      occurs?(i, t) ->
-        {:error, "Occurs check failed"}
-
-      true ->
-        {:ok, %{i => t}}
-    end
-  end
-end
-
-# ============================================================================
-# Hindley‑Milner algorithm W
-# ============================================================================
-
 defmodule Nova.Compiler.TypeChecker do
   @moduledoc """
-  A minimal Hindley‑Milner type‑checker (algorithm W) for the Nova AST.
-  At this stage we support literals, identifiers, lambda, let‑binding,
-  function application and a handful of built‑in operators.
+  Extended Hindley–Milner type‑checker (algorithm W) for *Nova* that aims to
+  cover the full set of language constructs currently accepted by the parser.
 
-  Each public entry point returns either `{:ok, type, env}` or
-  `{:error, reason}`.
+  This module supersedes earlier sketches – every expression or declaration
+  emitted by the Nova parser **should** be handled here, or at least yield a
+  descriptive error instead of a crash.  Unsupported constructs are clearly
+  marked with TODOs so that tests can be added incrementally.
   """
 
-  alias Nova.Compiler.Unify
-  alias Nova.Compiler.Types
+  # ────────────────────────────────────────────────────────────────────────────
+  #  Aliases & helpers
+  # ────────────────────────────────────────────────────────────────────────────
+  alias Nova.Compiler.{Ast, TypedAst, Types}
   alias Types.{Env, Scheme, Subst}
-  alias Nova.Compiler.Ast
+  alias Nova.Compiler.Unify
 
-  # Top‑level API --------------------------------------------------------------
-  def check_module(%Ast.Module{declarations: decls}, env \\ Env.empty()) do
-    Enum.reduce_while(decls, {:ok, env}, fn decl, {:ok, e} ->
+  # Convenience macro for fresh type‑variable allocation
+  defmacrop fresh(env, hint \\ "t") do
+    quote do
+      Env.fresh_var(unquote(env), unquote(hint))
+    end
+  end
+
+  @bool Types.t_bool()
+  @int Types.t_int()
+  @string Types.t_string()
+  @char Types.t_char()
+
+  # ────────────────────────────────────────────────────────────────────────────
+  #  Public entry‑points
+  # ────────────────────────────────────────────────────────────────────────────
+  @spec check_module(Ast.Module.t(), Env.t()) ::
+          {:ok, TypedAst.Module.t(), Env.t()} | {:error, term}
+  def check_module(%Ast.Module{name: name, declarations: decls}, env \\ Env.empty()) do
+    Enum.reduce_while(decls, {:ok, [], env}, fn decl, {:ok, typed_acc, e} ->
       case check_declaration(decl, e) do
-        {:ok, e2} -> {:cont, {:ok, e2}}
+        {:ok, typed_decl, e2} -> {:cont, {:ok, [typed_decl | typed_acc], e2}}
         err -> {:halt, err}
       end
     end)
+    |> case do
+      {:ok, typed_list_rev, final_env} ->
+        {:ok, %TypedAst.Module{name: name, declarations: Enum.reverse(typed_list_rev)}, final_env}
+
+      other ->
+        other
+    end
   end
 
+  # ────────────────────────────────────────────────────────────────────────────
+  #  Declarations
+  # ────────────────────────────────────────────────────────────────────────────
+
+  @spec check_declaration(Ast.t(), Env.t()) :: {:ok, TypedAst.t(), Env.t()} | {:error, term}
+
+  # ── Functions ───────────────────────────────────────────────────────────────
   def check_declaration(%Ast.FunctionDeclaration{} = f, env) do
-    with {:ok, t, s, e2} <- infer_function(f, env) do
-      env2 = generalize_bind(f.name, t, s, e2)
-      {:ok, env2}
+    with {:ok, typed_fun, _subst, env2} <- infer_function(f, env) do
+      {:ok, typed_fun, env2}
     end
   end
 
+  # ── Stand‑alone type signature ─────────────────────────────────────────────
   def check_declaration(%Ast.TypeSignature{} = sig, env) do
-    {:ok, Env.extend(env, sig.name, Scheme.new([], convert_type(sig.type)))}
+    type = convert_type(sig.type)
+    env2 = Env.extend(env, sig.name, Scheme.new([], type))
+
+    typed_sig = %TypedAst.TypeSignature{
+      name: sig.name,
+      type_vars: sig.type_vars,
+      constraints: sig.constraints,
+      type: type
+    }
+
+    {:ok, typed_sig, env2}
   end
 
-  # TODO handle
-  def check_declaration(%Ast.ImportDeclaration{}, env), do: {:ok, env}
-  def check_declaration(_, _), do: {:error, "Declaration kind not yet supported"}
+  # ── Data declarations ──────────────────────────────────────────────────────
+  def check_declaration(%Ast.DataType{} = dt, env), do: handle_data_type(dt, env)
 
-  # ---------------------------------------------------------------------------
-  # Expression inference
-  # ---------------------------------------------------------------------------
-  def infer_expression(%Ast.Literal{type: :number}, env),
-    do: {:ok, Types.t_int(), Subst.new(), env}
+  # ── Type aliases (transparent) ─────────────────────────────────────────────
+  def check_declaration(%Ast.TypeAlias{name: name, type_vars: vars, type: aliased}, env) do
+    aliased_t = convert_type(aliased)
+    scheme = Scheme.new(Enum.map(vars, &Types.TVar.fresh/1), aliased_t)
+    env2 = Env.extend(env, name, scheme)
 
-  def infer_expression(%Ast.Literal{type: :string}, env),
-    do: {:ok, Types.t_string(), Subst.new(), env}
+    typed_alias = %TypedAst.TypeAlias{name: name, type_vars: vars, type: aliased_t}
+    {:ok, typed_alias, env2}
+  end
 
-  def infer_expression(%Ast.Literal{type: :char}, env),
-    do: {:ok, Types.t_char(), Subst.new(), env}
+  # ── Type‑classes & instances – recorded but not checked yet ────────────────
+  def check_declaration(%Ast.TypeClass{} = cls, env), do: {:ok, cls, env}
+  def check_declaration(%Ast.TypeClassInstance{} = inst, env), do: {:ok, inst, env}
 
+  # ── Foreign imports / Plain imports (ignored by TC) ────────────────────────
+  def check_declaration(%Ast.ForeignImport{} = imp, env), do: {:ok, imp, env}
+  def check_declaration(%Ast.ImportDeclaration{} = imp, env), do: {:ok, imp, env}
+
+  # ── Fallback ───────────────────────────────────────────────────────────────
+  def check_declaration(other, _env), do: {:error, {"Unsupported declaration", other}}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  #  Expression inference (algorithm W)
+  # ────────────────────────────────────────────────────────────────────────────
+
+  @spec infer_expression(Ast.t(), Env.t()) ::
+          {:ok, TypedAst.t(), Subst.t(), Env.t()} | {:error, term}
+
+  # Literals ──────────────────────────────────────────────────────────────────
+  def infer_expression(%Ast.Literal{type: :number, value: v}, env),
+    do: {:ok, %TypedAst.Literal{value: v, type: @int}, Subst.new(), env}
+
+  def infer_expression(%Ast.Literal{type: :string, value: v}, env),
+    do: {:ok, %TypedAst.Literal{value: v, type: @string}, Subst.new(), env}
+
+  def infer_expression(%Ast.Literal{type: :char, value: v}, env),
+    do: {:ok, %TypedAst.Literal{value: v, type: @char}, Subst.new(), env}
+
+  def infer_expression(%Ast.Literal{type: :boolean, value: v}, env),
+    do: {:ok, %TypedAst.Literal{value: v, type: @bool}, Subst.new(), env}
+
+  # Identifiers ───────────────────────────────────────────────────────────────
   def infer_expression(%Ast.Identifier{name: n}, env) do
-    with {:ok, scheme} <- Env.lookup(env, n) do
-      {:ok, instantiate(scheme, env), Subst.new(), env}
-    else
-      :error -> {:error, "Unbound identifier #{n}"}
+    case Env.lookup(env, n) do
+      {:ok, scheme} ->
+        type = instantiate(scheme, env)
+        {:ok, %TypedAst.Identifier{name: n, type: type}, Subst.new(), env}
+
+      :error ->
+        {:error, "Unbound identifier #{n}"}
     end
   end
 
+  # Lambda abstractions ───────────────────────────────────────────────────────
   def infer_expression(%Ast.Lambda{parameters: params, body: body}, env) do
     {param_types, env1} =
       Enum.map_reduce(params, env, fn p, e ->
-        {v, e2} = Env.fresh_var(e, to_string(p.name || "p"))
-        {v, Env.extend(e2, p.name, Scheme.new([], v))}
+        {tvar, e2} = fresh(e, to_string(p.name || "p"))
+        {tvar, Env.extend(e2, p.name, Scheme.new([], tvar))}
       end)
 
-    with {:ok, body_type, s1, env2} <- infer_expression(body, env1) do
-      result = Enum.reduce(Enum.reverse(param_types), body_type, &Types.t_arrow(&1, &2))
-      {:ok, result, s1, env2}
+    with {:ok, body_node, s1, env2} <- infer_expression(body, env1) do
+      fun_type = Enum.reduce(Enum.reverse(param_types), body_node.type, &Types.t_arrow(&1, &2))
+
+      node = %TypedAst.Lambda{parameters: params, body: body_node, type: fun_type}
+      {:ok, node, s1, env2}
     end
   end
 
+  # Function application (n‑ary) ──────────────────────────────────────────────
   def infer_expression(%Ast.FunctionCall{function: fun, arguments: args}, env) do
-    with {:ok, fun_t, s1, env1} <- infer_expression(fun, env) do
-      {arg_results, {s_acc, env_acc, param_types}} =
+    with {:ok, fun_node, s1, env1} <- infer_expression(fun, env) do
+      {arg_nodes, {s_acc, env_acc, param_types}} =
         Enum.map_reduce(args, {s1, env1, []}, fn a, {s_prev, e_prev, pt} ->
-          with {:ok, a_t, s_new, e_new} <- infer_expression(a, e_prev) do
+          with {:ok, a_node, s_new, e_new} <- infer_expression(a, e_prev) do
             sub = Subst.compose(s_new, s_prev)
-            {:ok, nil, {sub, e_new, [a_t | pt]}}
+            {a_node, {sub, e_new, [a_node.type | pt]}}
           end
         end)
 
-      _ = arg_results
-      # Create fresh result type variable
-      {res_var, env2} = Env.fresh_var(env_acc)
-      arrow_t = Enum.reduce(Enum.reverse(param_types), res_var, &Types.t_arrow(&1, &2))
+      {res_type_var, env2} = fresh(env_acc)
+      arrow_t = Enum.reduce(Enum.reverse(param_types), res_type_var, &Types.t_arrow(&1, &2))
 
-      with {:ok, s2} <- Unify.unify(Subst.s_apply(s_acc, fun_t), Subst.s_apply(s_acc, arrow_t)) do
-        {:ok, Subst.s_apply(s2, res_var), Subst.compose(s2, s_acc), env2}
+      with {:ok, s2} <-
+             Unify.unify(Subst.s_apply(s_acc, fun_node.type), Subst.s_apply(s_acc, arrow_t)) do
+        res_type = Subst.s_apply(s2, res_type_var)
+
+        node = %TypedAst.FunctionCall{
+          function: fun_node,
+          arguments: arg_nodes,
+          type: res_type
+        }
+
+        {:ok, node, Subst.compose(s2, s_acc), env2}
       end
     end
   end
 
-  def infer_expression(%Ast.BinaryOp{op: op, left: l, right: r}, env) do
-    # For now assume numeric ops plus comparison
-    with {:ok, lt, s1, env1} <- infer_expression(l, env),
-         {:ok, rt, s2, env2} <- infer_expression(r, env1),
-         {:ok, s3} <- Unify.unify(Subst.s_apply(s2, lt), Subst.s_apply(s2, rt)) do
-      case op do
-        op when op in ["+", "-", "*", "/"] ->
-          {:ok, Types.t_int(), Subst.compose(s3, s2), env2}
+  # If / then / else ─────────────────────────────────────────────────────────
+  def infer_expression(%Ast.IfExpression{condition: c, then_branch: t, else_branch: e}, env) do
+    with {:ok, c_node, s1, env1} <- infer_expression(c, env),
+         {:ok, s_bool} <- Unify.unify(c_node.type, @bool),
+         s1 = Subst.compose(s_bool, s1),
+         {:ok, t_node, s2, env2} <- infer_expression(t, env1),
+         {:ok, e_node, s3, env3} <- infer_expression(e, env2),
+         {:ok, s4} <- Unify.unify(Subst.s_apply(s3, t_node.type), Subst.s_apply(s3, e_node.type)) do
+      final_sub = Enum.reduce([s4, s3, s2, s1], Subst.new(), &Subst.compose/2)
+      res_type = Subst.s_apply(final_sub, t_node.type)
 
-        op when op in ["==", "!=", "<", "<=", ">", ">="] ->
-          {:ok, Types.t_bool(), Subst.compose(s3, s2), env2}
+      node = %TypedAst.IfExpression{
+        condition: c_node,
+        then_branch: t_node,
+        else_branch: e_node,
+        type: res_type
+      }
 
-        _ ->
-          {:error, "Unknown operator #{op}"}
-      end
+      {:ok, node, final_sub, env3}
     end
   end
 
-  def infer_expression(%Ast.LetBinding{bindings: binds, body: body}, env) do
-    {env1, sub_acc} =
-      Enum.reduce(binds, {env, Subst.new()}, fn {name, expr}, {e, s} ->
-        with {:ok, t, s1, e1} <- infer_expression(expr, e),
-             s2 = Subst.compose(s1, s),
-             e2 = generalize_bind(name, t, s2, e1) do
-          {e2, s2}
+  # Unary operators (currently only numeric negation) ────────────────────────
+  def infer_expression(%Ast.UnaryOp{op: "-", value: v}, env) do
+    with {:ok, v_node, s1, env1} <- infer_expression(v, env),
+         {:ok, s2} <- Unify.unify(v_node.type, @int) do
+      node = %TypedAst.UnaryOp{op: "-", value: v_node, type: @int}
+      {:ok, node, Subst.compose(s2, s1), env1}
+    end
+  end
+
+  # Lists ────────────────────────────────────────────────────────────────────
+  def infer_expression(%Ast.List{elements: els}, env) do
+    {typed_elems, {subst, env1, elem_type}} =
+      Enum.map_reduce(els, {Subst.new(), env, nil}, fn el, {s_prev, e_prev, t_prev} ->
+        with {:ok, el_node, s_el, e_el} <- infer_expression(el, e_prev) do
+          sub = Subst.compose(s_el, s_prev)
+
+          t_curr =
+            cond do
+              is_nil(t_prev) ->
+                el_node.type
+
+              true ->
+                {:ok, s_unify} =
+                  Unify.unify(Subst.s_apply(sub, t_prev), Subst.s_apply(sub, el_node.type))
+
+                Subst.s_apply(s_unify, el_node.type)
+            end
+
+          {el_node, {sub, e_el, t_curr}}
         end
       end)
 
-    with {:ok, bt, s_body, env2} <- infer_expression(body, env1) do
-      {:ok, bt, Subst.compose(s_body, sub_acc), env2}
+    list_type = Types.t_list(elem_type || elem_type_fresh(env1))
+    {:ok, %TypedAst.List{elements: typed_elems, type: list_type}, subst, env1}
+  end
+
+  defp elem_type_fresh(env) do
+    {t, _} = fresh(env, "a")
+    t
+  end
+
+  # Tuples ───────────────────────────────────────────────────────────────────
+  def infer_expression(%Ast.Tuple{elements: els}, env) do
+    {typed, {subs, env1, types}} =
+      Enum.map_reduce(els, {Subst.new(), env, []}, fn el, {s_prev, e_prev, ts} ->
+        with {:ok, el_node, s_el, e_el} <- infer_expression(el, e_prev) do
+          {el_node, {Subst.compose(s_el, s_prev), e_el, [el_node.type | ts]}}
+        end
+      end)
+
+    tuple_type = Types.t_tuple(Enum.reverse(types))
+    {:ok, %TypedAst.Tuple{elements: typed, type: tuple_type}, subs, env1}
+  end
+
+  # Record literals – shallow row‑polymorphic handling (closed) ───────────────
+  def infer_expression(%Ast.RecordLiteral{fields: kv}, env) do
+    {typed_fields, {subs, env1, f_types}} =
+      Enum.map_reduce(kv, {Subst.new(), env, []}, fn {lbl, expr}, {s_prev, e_prev, acc} ->
+        with {:ok, expr_node, s_e, e_e} <- infer_expression(expr, e_prev) do
+          {{lbl, expr_node}, {Subst.compose(s_e, s_prev), e_e, [{lbl, expr_node.type} | acc]}}
+        end
+      end)
+
+    rec_type = Types.t_record(Enum.reverse(f_types), :empty)
+    {:ok, %TypedAst.RecordLiteral{fields: typed_fields, type: rec_type}, subs, env1}
+  end
+
+  # Let‑binding (non‑recursive) – already implemented earlier
+  def infer_expression(%Ast.LetBinding{} = let, env), do: infer_let(let, env)
+
+  # Catch‑all
+  def infer_expression(expr, _), do: {:error, {"Unsupported expression", expr}}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  #  Helpers split from huge clauses for clarity
+  # ────────────────────────────────────────────────────────────────────────────
+
+  # Let‑binding helper (non‑recursive)
+  defp infer_let(%Ast.LetBinding{bindings: binds, body: body}, env) do
+    {env1, sub_acc, typed_binds} =
+      Enum.reduce(binds, {env, Subst.new(), []}, fn {name, expr}, {e, s, typed_list} ->
+        with {:ok, expr_node, s1, e1} <- infer_expression(expr, e),
+             s2 = Subst.compose(s1, s),
+             e2 = generalize_bind(name, expr_node.type, s2, e1) do
+          {e2, s2, [{name, expr_node} | typed_list]}
+        end
+      end)
+
+    with {:ok, body_node, s_body, env2} <- infer_expression(body, env1) do
+      node = %TypedAst.LetBinding{
+        bindings: Enum.reverse(typed_binds),
+        body: body_node,
+        type: body_node.type
+      }
+
+      {:ok, node, Subst.compose(s_body, sub_acc), env2}
     end
   end
 
-  def infer_expression(expr, _),
-    do: {:error, "Expression form not yet supported: #{inspect(expr)}"}
+  # Data‑type helper (moved verbatim from earlier version)
+  defp handle_data_type(dt, env) do
+    %Ast.DataType{name: t_name, type_vars: vars_ast, constructors: ctors} = dt
+
+    {vars, _ids} =
+      Enum.map_reduce(vars_ast, elem(Env.fresh_var(env), 1).counter, fn var_name, id_acc ->
+        {Types.TVar.new(id_acc, String.to_atom(var_name)), id_acc + 1}
+      end)
+
+    result_type = Types.TCon.new(String.to_atom(t_name), vars)
+
+    {env_out, typed_ctors} =
+      Enum.reduce(ctors, {env, []}, fn %Ast.DataConstructor{name: c_name, fields: fld_ast},
+                                       {e_acc, typed_acc} ->
+        {field_types, _} =
+          Enum.map_reduce(fld_ast, e_acc, fn fa, _ -> {convert_type(fa), nil} end)
+
+        cons_type = Enum.reduce(Enum.reverse(field_types), result_type, &Types.t_arrow(&1, &2))
+        scheme = Scheme.new(vars, cons_type)
+        e_next = Env.extend(e_acc, String.to_atom(c_name), scheme)
+        typed_ctor = %TypedAst.DataConstructor{name: c_name, fields: field_types, type: cons_type}
+        {e_next, [typed_ctor | typed_acc]}
+      end)
+
+    typed_dt = %TypedAst.DataType{
+      name: t_name,
+      type_vars: vars,
+      constructors: Enum.reverse(typed_ctors)
+    }
+
+    {:ok, typed_dt, env_out}
+  end
 
   # ---------------------------------------------------------------------------
-  # Function declarations ------------------------------------------------------
+  # Function declarations
   # ---------------------------------------------------------------------------
   defp infer_function(
-         %Ast.FunctionDeclaration{name: name, parameters: params, body: body, type_signature: ts},
+         %Ast.FunctionDeclaration{
+           name: name,
+           parameters: params,
+           body: body,
+           type_signature: sig
+         },
          env
        ) do
     {param_types, env1} =
       Enum.map_reduce(params, env, fn p, e ->
-        {v, e2} = Env.fresh_var(e, to_string(p.name || "p"))
-        {v, Env.extend(e2, p.name, Scheme.new([], v))}
+        {tvar, e2} = fresh(e, to_string(p.name || "p"))
+        {tvar, Env.extend(e2, p.name, Scheme.new([], tvar))}
       end)
 
-    with {:ok, body_t, s1, env2} <- infer_expression(body, env1) do
-      fun_type = Enum.reduce(Enum.reverse(param_types), body_t, &Types.t_arrow(&1, &2))
-      # If explicit signature, unify with inferred type
-      case ts do
-        nil ->
-          {:ok, fun_type, s1, env2}
+    with {:ok, body_node, s1, env2} <- infer_expression(body, env1) do
+      fun_type_inferred =
+        Enum.reduce(Enum.reverse(param_types), body_node.type, &Types.t_arrow(&1, &2))
 
-        %Ast.TypeSignature{} ->
-          ts_type = convert_type(ts.type)
+      {final_type, s_final} =
+        case sig do
+          nil ->
+            {fun_type_inferred, s1}
 
-          with {:ok, s2} <- Unify.unify(Subst.s_apply(s1, fun_type), Subst.s_apply(s1, ts_type)) do
-            {:ok, Subst.s_apply(s2, ts_type), Subst.compose(s2, s1), env2}
-          end
-      end
+          %Ast.TypeSignature{} ->
+            explicit = convert_type(sig.type)
+
+            case Unify.unify(Subst.s_apply(s1, fun_type_inferred), Subst.s_apply(s1, explicit)) do
+              {:ok, s2} -> {Subst.s_apply(s2, explicit), Subst.compose(s2, s1)}
+              err -> throw(err)
+            end
+        end
+
+      typed_fun = %TypedAst.FunctionDeclaration{
+        name: name,
+        parameters: params,
+        body: body_node,
+        type: final_type,
+        explicit_signature?: sig != nil
+      }
+
+      env3 = generalize_bind(name, final_type, s_final, env2)
+      {:ok, typed_fun, s_final, env3}
     end
   end
 
   # ---------------------------------------------------------------------------
-  # Helper utilities
+  # Generalisation / instantiation helpers
   # ---------------------------------------------------------------------------
+
   defp generalize_bind(name, type, sub, env) do
     ftv_env = Types.free_type_vars_env(env)
-    ftv_t = Types.free_type_vars(type) |> MapSet.new()
+    ftv_t = Types.free_type_vars(type)
 
     qvars =
       MapSet.difference(ftv_t, ftv_env)
-      |> Enum.map(fn id -> Types.TVar.new(id, :q) end)
+      |> Enum.map(&Types.TVar.new(&1, :q))
 
     scheme = Scheme.new(qvars, type)
     Env.extend(env, name, scheme)
@@ -322,23 +400,44 @@ defmodule Nova.Compiler.TypeChecker do
   defp instantiate(%Scheme{vars: vars, type: t}, env) do
     {sub, _env} =
       Enum.reduce(vars, {Subst.new(), env}, fn v, {s, e} ->
-        {fresh, e2} = Env.fresh_var(e)
+        {fresh, e2} = fresh(e)
         {Map.put(s, v.id, fresh), e2}
       end)
 
     Types.Subst.s_apply(sub, t)
   end
 
-  # Convert parsed type AST into internal Types.t()
   defp convert_type(%Ast.Identifier{name: n}), do: Types.TCon.new(String.to_atom(n))
+
+  defp convert_type(%Ast.BinaryOp{op: "->", left: a, right: b}),
+    do: Types.t_arrow(convert_type(a), convert_type(b))
 
   defp convert_type(%Ast.FunctionCall{function: %Ast.Identifier{name: "[]"}, arguments: [el]}),
     do: Types.t_list(convert_type(el))
 
   defp convert_type(%Ast.Tuple{elements: els}), do: Types.t_tuple(Enum.map(els, &convert_type/1))
 
-  defp convert_type(%Ast.BinaryOp{op: "->", left: a, right: b}),
-    do: Types.t_arrow(convert_type(a), convert_type(b))
+  defp convert_type(%Ast.ForAllType{vars: vs, type: t}) do
+    base = convert_type(t)
+    # Wrap explicitly quantified vars into a Scheme then unwrap into TCon with meta –
+    # Nova doesn't yet expose explicit ∀ at runtime, so we simply preserve type
+    Scheme.new(Enum.map(vs, &Types.TVar.fresh/1), base).type
+  end
+
+  defp convert_type(%Ast.RecordType{fields: fields, row: :empty}) do
+    tfs = Enum.map(fields, fn {lbl, ty_ast} -> {lbl, convert_type(ty_ast)} end)
+    Types.t_record(tfs, :empty)
+  end
+
+  defp convert_type(%Ast.FunctionCall{function: fun_ast, arguments: arg_asts} = app) do
+    case convert_type(fun_ast) do
+      %Types.TCon{name: name, args: prev_args} ->
+        Types.TCon.new(name, prev_args ++ Enum.map(arg_asts, &convert_type/1))
+
+      other ->
+        raise("Cannot apply non-constructor #{inspect(other)} in #{inspect(app)}")
+    end
+  end
 
   defp convert_type(other), do: raise("Unsupported type syntax #{inspect(other)}")
 end

@@ -1,0 +1,72 @@
+module Parser where
+
+-------------------#section-------------------
+
+x = 1
+
+-------------------#section-------------------
+
+import Ast as Ast
+import Token as Tok
+
+-------------------#section-------------------
+
+data Unit = Unit
+
+data Either e a = Left e | Right a
+
+data Maybe a  = Nothing | Just a
+
+data List a   = Nil | Cons a (List a)
+
+type Tokens   = List Tok.Token
+
+data Tuple a b = Tuple a b
+
+-------------------#section-------------------
+
+foreign import dropWhile      :: forall a. (a -> Boolean) -> List a -> List a
+foreign import reject         :: forall a. (a -> Boolean) -> List a -> List a
+foreign import reverse        :: forall a. List a -> List a
+foreign import map            :: forall a b. (a -> b) -> List a -> List b
+foreign import splitWhile     :: forall a. (a -> Boolean) -> List a -> Tuple (List a) (List a)
+foreign import findIndex      :: forall a. (a -> Boolean) -> List a -> Maybe Int
+foreign import length         :: forall a. List a -> Int
+foreign import head           :: forall a. List a -> a
+
+-- string / numeric helpers
+foreign import (<> )          :: String -> String -> String
+foreign import showInt        :: Int -> String
+
+-------------------#section-------------------
+
+isNewline :: Tok.Token -> Boolean
+isNewline tok = Tok.type tok == "newline"
+
+-------------------#section-------------------
+
+skipNewlines :: Tokens -> Tokens
+skipNewlines = dropWhile isNewline
+
+-- drops exactly the *leading* newlines (tail‑recursive pattern‑match)
+dropNewlines :: Tokens -> Tokens
+dropNewlines (Cons t ts) | isNewline t = dropNewlines ts
+dropNewlines xs                         = xs
+
+stripNewlines :: Tokens -> Tokens
+stripNewlines = reject isNewline
+
+ensureConsumed :: Tokens -> Either String Unit
+ensureConsumed rest =
+  case skipNewlines rest of
+    Nil               -> Right Unit
+    Cons tok _        ->
+      let msg = "unexpected tokens after successful parse – "
+                <> Tok.type tok <> ":" <> Tok.value tok
+                <> " at line " <> showInt (Tok.line tok)
+                <> ", col " <> showInt (Tok.column tok)
+      in Left msg
+
+-------------------#section-------------------
+
+type ParseResult a = Either String (Tuple a Tokens)
