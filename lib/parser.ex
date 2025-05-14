@@ -33,22 +33,6 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  # ------------------------------------------------------------
-  #  Module parsing
-  # ------------------------------------------------------------
-  def parse_module(tokens) do
-    tokens = drop_newlines(tokens)
-
-    with {:ok, _, tokens} <- expect_keyword(tokens, "module"),
-         {:ok, module_name, tokens} <- parse_qualified_identifier(tokens),
-         {:ok, _, tokens} <- expect_keyword(tokens, "where"),
-         {:ok, declarations, tokens} <- parse_declarations(tokens) do
-      {:ok, %Ast.Module{name: module_name, declarations: declarations}, tokens}
-    else
-      other -> other
-    end
-  end
-
   def parse_declarations(tokens), do: parse_declarations(tokens, [])
   def parse_declarations([], acc), do: {:ok, Enum.reverse(acc), []}
 
@@ -79,6 +63,7 @@ defmodule Nova.Compiler.Parser do
           {:error, _} ->
             parse_any(
               [
+                &parse_module/1,
                 &parse_import/1,
                 &parse_foreign_import_simple/1,
                 &parse_foreign_import/1,
@@ -91,6 +76,21 @@ defmodule Nova.Compiler.Parser do
               tokens
             )
         end
+    end
+  end
+
+  # ------------------------------------------------------------
+  #  Module parsing
+  # ------------------------------------------------------------
+  def parse_module(tokens) do
+    tokens = drop_newlines(tokens)
+
+    with {:ok, _, tokens} <- expect_keyword(tokens, "module"),
+         {:ok, module_name, tokens} <- parse_qualified_identifier(tokens),
+         {:ok, _, tokens} <- expect_keyword(tokens, "where") do
+      {:ok, %Ast.Module{name: module_name}, tokens}
+    else
+      other -> other
     end
   end
 

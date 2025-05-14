@@ -1,0 +1,203 @@
+module Nova.Compiler.Ast where
+
+-------------------#section-------------------
+
+-- import Prelude
+
+-- ─────────────────────────────────────────────────────────────────────────────
+--  Simple placeholders that will be expanded in the type-checker work
+-- ─────────────────────────────────────────────────────────────────────────────
+data Expression      = ExprPlaceholder
+data TypeExpr        = TyPlaceholder
+data Constraint      = ConstraintPlaceholder
+data Pattern         = PatPlaceholder
+data RowTail         = RowEmpty | RowVar String | RowWild
+
+-- Helper for field lists (keeps the record syntax readable)
+data KVPair k v = KVPair k v
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+--  Import items
+-- ─────────────────────────────────────────────────────────────────────────────
+
+data ImportItem
+  = ImportPlain             String             -- log
+  | ImportAllConstructors   String             -- Foo(..)
+  | ImportConstructors      String (Array String) -- Foo(Bar, Baz)
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+--  Declarations
+-- ─────────────────────────────────────────────────────────────────────────────
+
+type TypeDeclaration =
+  { name          :: String
+  , typeSignature :: TypeSignature
+  }
+
+type FunctionDeclaration =
+  { name          :: String
+  , parameters    :: Array Identifier
+  , body          :: Expression
+  , typeSignature :: Maybe TypeSignature
+  }
+
+type TypeSignature =
+  { name        :: String
+  , typeVars    :: Array String
+  , constraints :: Array Constraint
+  , type        :: TypeExpr
+  }
+
+type TypeClass =
+  { name      :: String
+  , typeVars  :: Array String
+  , methods   :: Array FunctionDeclaration
+  }
+
+type TypeAlias =
+  { name     :: String
+  , typeVars :: Array String
+  , type     :: TypeExpr
+  }
+
+type TypeClassInstance =
+  { className :: String
+  , type      :: TypeExpr
+  , methods   :: Array FunctionDeclaration
+  }
+
+type DataType =
+  { name         :: String
+  , typeVars     :: Array String
+  , constructors :: Array DataConstructor
+  }
+
+type DataConstructor =
+  { name   :: String
+  , fields :: Array TypeExpr
+  }
+
+type ImportDeclaration =
+  { module  :: Identifier
+  , alias   :: Maybe String
+  , items   :: Array ImportItem
+  , hiding  :: Boolean
+  }
+
+type ForeignImport =
+  { module        :: String
+  , function      :: String
+  , alias         :: Maybe String
+  , typeSignature :: TypeSignature
+  }
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+--  Expression forms
+-- ─────────────────────────────────────────────────────────────────────────────
+
+type FunctionCall =
+  { function  :: Expression
+  , arguments :: Array Expression
+  }
+
+type BinaryOp =
+  { op    :: String
+  , left  :: Expression
+  , right :: Expression
+  }
+
+type UnaryOp =
+  { op    :: String
+  , value :: Expression
+  }
+
+type IfExpression =
+  { condition   :: Expression
+  , thenBranch  :: Expression
+  , elseBranch  :: Expression
+  }
+
+type CaseExpression =
+  { expression :: Expression
+  , cases      :: Array CaseClause
+  }
+
+type CaseClause =
+  { pattern :: Pattern
+  , body    :: Expression
+  }
+
+type LetBinding =
+  { bindings :: Array (KVPair Identifier Expression)
+  , body     :: Expression
+  }
+
+type DoBlock =
+  { expressions :: Array Expression
+  }
+
+type Lambda =
+  { parameters :: Array Identifier
+  , body       :: Expression
+  }
+
+type List =
+  { elements :: Array Expression
+  }
+
+type ListComprehension =
+  { expression :: Expression
+  , generators :: Array Generator
+  , guards     :: Array Expression
+  }
+
+type Generator =
+  { pattern    :: Pattern
+  , expression :: Expression
+  }
+
+type Tuple =
+  { elements :: Array Expression
+  }
+
+type Identifier =
+  { name :: String
+  }
+
+type Literal =
+  { type  :: String
+  , value :: String
+  }
+
+type PrefixOperator =
+  { op         :: String
+  , expression :: Expression
+  }
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+--  Types that live *inside* other type expressions
+-- ─────────────────────────────────────────────────────────────────────────────
+
+type ForAllType =
+  { vars :: Array String
+  , type :: TypeExpr
+  }
+
+type RecordType =
+  { fields :: Array (KVPair String TypeExpr)
+  , row    :: RowTail
+  }
+
+type RecordPattern =
+  { fields :: Array (KVPair String Pattern)
+  }
+
+type RecordLiteral =
+  { fields :: Array (KVPair String Expression)
+  }
+
+type FaileMe = { x :: GottaFail }

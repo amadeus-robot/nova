@@ -18,7 +18,7 @@ defmodule Nova.Compiler.Types do
   defmodule Record do
     @moduledoc false
     # fields :: %{label => Types.t()}
-    defstruct [:fields]
+    defstruct [:fields, :row]
   end
 
   @type t ::
@@ -74,15 +74,93 @@ defmodule Nova.Compiler.Types do
   # ---------------------------------------------------------------------------
   # Environment mapping identifiers -> Scheme
   # ---------------------------------------------------------------------------
+
   defmodule Env do
-    defstruct [:m, :counter]
-    def empty, do: %__MODULE__{m: %{}, counter: 0}
+    @moduledoc """
+    Typing environment threaded through parsing → name‑resolution → HM inference.
 
-    def extend(%__MODULE__{m: m} = e, name, scheme),
-      do: %__MODULE__{e | m: Map.put(m, name, scheme)}
+    * `m`     – map of *type constructor name* ⇒ `Types.Scheme.t` (or any
+                placeholder that at least carries the correct `vars` arity).
+    * `counter` – monotonic integer used by `fresh_var/2`.
+    * `registry_layer` – handle to the current `InterfaceRegistry` layer so
+                         helper passes can fall back to upstream modules.
+    """
 
+    alias Nova.Compiler.Types
+    alias Types.{Scheme, TVar, TCon}
+
+    defstruct m: %{}, counter: 0, registry_layer: nil, namespace: nil
+
+    # ────────────────────────────────────────────────────────────────────────────
+    #  Constructors
+    # ────────────────────────────────────────────────────────────────────────────
+
+    @doc "Return a brand‑new empty environment (registry must be provided later)."
+    @spec empty() :: t()
+    def empty, do: %__MODULE__{}
+
+    @doc "Return an empty env that already knows its InterfaceRegistry layer."
+    @spec empty(layer) :: t() when layer: any
+    def empty(layer), do: %__MODULE__{registry_layer: layer}
+
+    # ────────────────────────────────────────────────────────────────────────────
+    #  Core ops
+    # ────────────────────────────────────────────────────────────────────────────
+
+    @type t :: %__MODULE__{}
+
+    @doc "Add or replace a Scheme under `name`."
+    @spec extend(t, atom, Scheme.t()) :: t
+    def extend(%__MODULE__{m: m} = e, name, %Scheme{} = scheme) do
+      %__MODULE__{e | m: Map.put(m, name, scheme)}
+    end
+
+    @doc "Lookup a Scheme by name.  Returns `{:ok, scheme}` | :error."
+    @spec lookup(t, atom) :: {:ok, Scheme.t()} | :error
     def lookup(%__MODULE__{m: m}, name), do: Map.fetch(m, name)
 
+    # ────────────────────────────────────────────────────────────────────────────
+    #  Helpers used by NameResolver
+    # ────────────────────────────────────────────────────────────────────────────
+
+    @doc "Is the type constructor defined in the local environment?"
+    @spec type_defined?(t, atom) :: boolean
+    def type_defined?(env, name), do: match?({:ok, _}, lookup(env, name))
+
+    @doc "Return the arity (number of type variables) of a locally defined type."
+    @spec arity(t, atom) :: non_neg_integer | nil
+    def arity(env, name) do
+      case lookup(env, name) do
+        {:ok, %Scheme{vars: vars}} -> length(vars)
+        _ -> nil
+      end
+    end
+
+    @doc "Bind a *new* data‑type during the walk so self‑recursive refs work."
+    @spec bind_type(t, atom, non_neg_integer) :: t
+    def bind_type(env, name, arity) do
+      vars = for i <- 0..(arity - 1), do: TVar.new(-1, String.to_atom("_#{i}"))
+      scheme = %Scheme{vars: vars, type: %TCon{name: name, args: vars}}
+      extend(env, name, scheme)
+    end
+
+    # ────────────────────────────────────────────────────────────────────────────
+    #  Import handling (used by ImportLoader – future work)
+    # ────────────────────────────────────────────────────────────────────────────
+
+    @doc "Record a type imported under (possibly) an alias namespace."
+    @spec bind_import(t, atom, atom, Scheme.t()) :: t
+    def bind_import(env, _alias_ns, name, scheme) do
+      # For now we ignore qualification; future versions may store {alias, name}.
+      extend(env, name, scheme)
+    end
+
+    # ────────────────────────────────────────────────────────────────────────────
+    #  Fresh TVar generator (still used by HM inference)
+    # ────────────────────────────────────────────────────────────────────────────
+
+    @doc "Generate a fresh type variable with an optional name hint."
+    @spec fresh_var(t, String.t()) :: {TVar.t(), t}
     def fresh_var(%__MODULE__{counter: c} = e, hint \\ "t") do
       {TVar.new(c, String.to_atom(hint <> Integer.to_string(c))), %__MODULE__{e | counter: c + 1}}
     end
