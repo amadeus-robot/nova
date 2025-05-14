@@ -36,18 +36,18 @@ type TypeDeclaration =
   , typeSignature :: TypeSignature
   }
 
-type FunctionDeclaration =
-  { name          :: String
-  , parameters    :: Array Identifier
-  , body          :: Expression
-  , typeSignature :: Maybe TypeSignature
-  }
-
 type TypeSignature =
   { name        :: String
   , typeVars    :: Array String
   , constraints :: Array Constraint
   , type        :: TypeExpr
+  }
+
+type FunctionDeclaration =
+  { name          :: String
+  , parameters    :: Array Identifier
+  , body          :: Expression
+  , typeSignature :: Maybe TypeSignature
   }
 
 type TypeClass =

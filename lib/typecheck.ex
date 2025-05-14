@@ -13,7 +13,7 @@ defmodule Nova.Compiler.TypeChecker do
 
   alias Nova.Compiler.{Types, Unify, Ast, TypedAst}
   alias Nova.Compiler.Types.{Env, Scheme, Subst, TVar, TCon}
-  alias Nova.InterfaceRegistry, as: IR
+  alias Nova.Compiler.InterfaceRegistry, as: IR
 
   # ---------------------------------------------------------------------------
   # Entry‑point – batch checker

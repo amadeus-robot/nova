@@ -25,9 +25,10 @@ defmodule TH do
   end
 
   defp process_chunk(chunk, ns, reg, env) do
+    # ,
+    # {:ok, _} <- Nova.Compiler.NameResolver.resolve_block(decls, ns, reg, env) 
     with tokens <- Nova.Compiler.Tokenizer.tokenize(chunk),
-         {:ok, decls, _} <- Nova.Compiler.Parser.parse_declarations(tokens),
-         {:ok, _} <- Nova.Compiler.NameResolver.resolve_block(decls, ns, reg, env) do
+         {:ok, decls, _} <- Nova.Compiler.Parser.parse_declarations(tokens) do
       case IO.inspect(Nova.Compiler.TypeChecker.check_block(decls, ns, reg)) do
         {:ok, dec, something} ->
           IO.inspect(something, limit: 88_888_888_888)

@@ -97,11 +97,11 @@ defmodule Nova.Compiler.Types do
 
     @doc "Return a brand‑new empty environment (registry must be provided later)."
     @spec empty() :: t()
-    def empty, do: %__MODULE__{}
+    def empty, do: %__MODULE__{m: builtin_prelude()}
 
     @doc "Return an empty env that already knows its InterfaceRegistry layer."
     @spec empty(layer) :: t() when layer: any
-    def empty(layer), do: %__MODULE__{registry_layer: layer}
+    def empty(layer), do: %__MODULE__{registry_layer: layer, m: builtin_prelude()}
 
     # ────────────────────────────────────────────────────────────────────────────
     #  Core ops
@@ -138,6 +138,12 @@ defmodule Nova.Compiler.Types do
 
     @doc "Bind a *new* data‑type during the walk so self‑recursive refs work."
     @spec bind_type(t, atom, non_neg_integer) :: t
+    def bind_type(env, name, 0) do
+      vars = []
+      scheme = %Scheme{vars: vars, type: %TCon{name: name, args: vars}}
+      extend(env, name, scheme)
+    end
+
     def bind_type(env, name, arity) do
       vars = for i <- 0..(arity - 1), do: TVar.new(-1, String.to_atom("_#{i}"))
       scheme = %Scheme{vars: vars, type: %TCon{name: name, args: vars}}
@@ -163,6 +169,38 @@ defmodule Nova.Compiler.Types do
     @spec fresh_var(t, String.t()) :: {TVar.t(), t}
     def fresh_var(%__MODULE__{counter: c} = e, hint \\ "t") do
       {TVar.new(c, String.to_atom(hint <> Integer.to_string(c))), %__MODULE__{e | counter: c + 1}}
+    end
+
+    # Build the Prelude map only once and reuse it – small but avoids re-allocs.
+    @spec builtin_prelude() :: %{atom => Scheme.t()}
+    defp builtin_prelude do
+      # helpers ─────────────────────────────────────────────────────────────────
+      fresh =
+        Stream.iterate(-1, &(&1 - 1))
+        |> Stream.map(&TVar.new(&1, :_))
+        |> Enum.take(3)
+
+      [v1, v2, v3] = fresh
+
+      zero = []
+      one = [v1]
+      two = [v1, v2]
+
+      %{
+        # 0-arity
+        Int: %Scheme{vars: zero, type: Types.t_int()},
+        String: %Scheme{vars: zero, type: Types.t_string()},
+        Char: %Scheme{vars: zero, type: Types.t_char()},
+        Bool: %Scheme{vars: zero, type: Types.t_bool()},
+
+        # 1-arity
+        Array: %Scheme{vars: one, type: TCon.new(:Array, one)},
+        List: %Scheme{vars: one, type: Types.t_list(v1)},
+        Maybe: %Scheme{vars: one, type: TCon.new(:Maybe, one)},
+
+        # 2-arity
+        Either: %Scheme{vars: two, type: TCon.new(:Either, two)}
+      }
     end
   end
 
