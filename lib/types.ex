@@ -15,7 +15,17 @@ defmodule Nova.Compiler.Types do
     def new(name, args \\ []), do: %__MODULE__{name: name, args: args}
   end
 
-  @type t :: TVar.t() | TCon.t()
+  defmodule Record do
+    @moduledoc false
+    # fields :: %{label => Types.t()}
+    defstruct [:fields]
+  end
+
+  @type t ::
+          TVar.t()
+          | TCon.t()
+          # <── NEW
+          | Record.t()
 
   # Convenience helpers for the common built‑ins
   def t_int, do: TCon.new(:Int)
@@ -45,6 +55,11 @@ defmodule Nova.Compiler.Types do
 
     def s_apply(sub, %TCon{args: args} = c) do
       %TCon{c | args: Enum.map(args, &s_apply(sub, &1))}
+    end
+
+    def s_apply(sub, %Record{fields: f} = r) do
+      fm = for {k, v} <- f, into: %{}, do: {k, s_apply(sub, v)}
+      %Record{r | fields: fm}
     end
   end
 
@@ -76,6 +91,12 @@ defmodule Nova.Compiler.Types do
   # ---------------------------------------------------------------------------
   # Utility functions
   # ---------------------------------------------------------------------------
+  def free_type_vars(%Record{fields: f}) do
+    Enum.reduce(f, MapSet.new(), fn {_k, t}, acc ->
+      MapSet.union(acc, free_type_vars(t))
+    end)
+  end
+
   def free_type_vars(%TVar{} = v), do: MapSet.new([v.id])
 
   def free_type_vars(%TCon{args: args}),
@@ -99,10 +120,36 @@ defmodule Nova.Compiler.Types do
 end
 
 defmodule Nova.Compiler.Unify do
-  alias Nova.Compiler.Types.{TVar, TCon, Subst}
+  alias Nova.Compiler.Types.{TVar, TCon, Subst, Record}
 
   @spec unify(Types.t(), Types.t()) :: {:ok, Subst.t()} | {:error, String.t()}
   def unify(a, b), do: do_unify(a, b, Subst.new())
+
+  defp do_unify(
+         %Nova.Compiler.Types.Record{fields: f1},
+         %Nova.Compiler.Types.Record{fields: f2},
+         s
+       ) do
+    keys1 = Map.keys(f1) |> Enum.sort()
+    keys2 = Map.keys(f2) |> Enum.sort()
+
+    cond do
+      keys1 != keys2 ->
+        {:error, "Record label mismatch (#{inspect(keys1)} ≠ #{inspect(keys2)})"}
+
+      true ->
+        Enum.zip(keys1, keys1)
+        |> Enum.reduce_while({:ok, s}, fn k, {:ok, sub} ->
+          t1 = Types.Subst.s_apply(sub, Map.fetch!(f1, k))
+          t2 = Types.Subst.s_apply(sub, Map.fetch!(f2, k))
+
+          case do_unify(t1, t2, sub) do
+            {:ok, sub2} -> {:cont, {:ok, sub2}}
+            err -> {:halt, err}
+          end
+        end)
+    end
+  end
 
   defp do_unify(%TVar{id: i} = v, t, s) do
     case Subst.lookup(s, v) do

@@ -54,7 +54,15 @@ defmodule Nova.Compiler.TypeChecker do
   defp check_declaration(%Ast.ImportDeclaration{} = imp, ns, reg, env),
     do: process_import(imp, ns, reg, env)
 
-  # TODO: DataType, TypeAlias, ForeignImport, etc.
+  defp check_declaration(%Ast.DataType{} = dt, ns, reg, env),
+    do: define_data_type(dt, ns, reg, env)
+
+  defp check_declaration(%Ast.TypeAlias{} = ta, ns, reg, env),
+    do: define_type_alias(ta, ns, reg, env)
+
+  defp check_declaration(%Ast.ForeignImport{} = fi, ns, reg, env),
+    do: define_foreign(fi, ns, reg, env)
+
   defp check_declaration(other, _ns, _reg, _env),
     do: {:error, "Unsupported declaration #{inspect(other.__struct__)}"}
 
@@ -345,12 +353,6 @@ defmodule Nova.Compiler.TypeChecker do
     end
   end
 
-  # very incomplete type converter
-  defp convert_type(%Ast.Identifier{name: :Int}), do: Types.t_int()
-  defp convert_type(%Ast.Identifier{name: :String}), do: Types.t_string()
-  defp convert_type(%Ast.Identifier{name: :Bool}), do: Types.t_bool()
-  defp convert_type(other), do: raise("TODO convert type #{inspect(other)}")
-
   @spec record_type_signature(Ast.TypeSignature.t(), atom, IR.t(), Env.t()) ::
           {:ok, TypedAst.TypeSignature.t(), Env.t()}
   defp record_type_signature(%Ast.TypeSignature{name: name, type: ast_ty} = sig, _ns, _reg, env) do
@@ -359,4 +361,140 @@ defmodule Nova.Compiler.TypeChecker do
     typed = %TypedAst.TypeSignature{sig | type: ast_ty}
     {:ok, typed, env2}
   end
+
+  # ───────────────────────────────────────────────────────────────────
+  #  ◈  Type aliases  ◈
+  # ───────────────────────────────────────────────────────────────────
+
+  defp define_type_alias(
+         %Ast.TypeAlias{name: name, type_vars: vars, type: rhs_ast} = ali,
+         ns,
+         reg,
+         env
+       ) do
+    {tv_map, _env1} = alloc_type_vars(vars, env)
+    alias_type = convert_type(rhs_ast, tv_map)
+
+    scheme = Scheme.new(Map.values(tv_map), alias_type)
+    publish(reg, ns, name, scheme, ali)
+
+    {:ok, %TypedAst.TypeAlias{name: name, type_vars: vars, type: alias_type}, env}
+  end
+
+  # ───────────────────────────────────────────────────────────────────
+  #  ◈  Foreign imports  ◈
+  # ───────────────────────────────────────────────────────────────────
+
+  defp define_foreign(
+         %Ast.ForeignImport{alias: as?, function: fun, type_signature: sig} = decl,
+         ns,
+         reg,
+         env
+       ) do
+    id = as? || fun
+    ty = convert_type(sig.type)
+    scheme = Scheme.new([], ty)
+
+    publish(reg, ns, id, scheme, %TypedAst.ForeignImport{alias: as?, function: fun, type: ty})
+    {:ok, decl, Env.extend(env, id, scheme)}
+  end
+
+  # ───────────────────────────────────────────────────────────────────
+  #  ◈  Algebraic data-type handling  ◈
+  # ───────────────────────────────────────────────────────────────────
+
+  defp define_data_type(
+         %Ast.DataType{name: name, type_vars: vars, constructors: ctors} = dt,
+         ns,
+         reg,
+         env
+       ) do
+    {tv_map, env1} = alloc_type_vars(vars, env)
+
+    # Build the fully-applied type constructor for the RHS of every ctor
+    data_tcon =
+      Types.TCon.new(String.to_atom(name), Map.values(tv_map))
+
+    {typed_ctors, env2} =
+      Enum.map_reduce(ctors, env1, fn %Ast.DataConstructor{name: c_name, fields: fs}, e ->
+        f_types = Enum.map(fs, &convert_type(&1, tv_map))
+        ctor_ty = fold_arrow(Enum.reverse(f_types), data_tcon)
+
+        sch = Scheme.new(Map.values(tv_map), ctor_ty)
+
+        publish(reg, ns, c_name, sch, %TypedAst.DataConstructor{
+          name: c_name,
+          fields: f_types,
+          type: ctor_ty
+        })
+
+        {c_name, Env.extend(e, c_name, sch)}
+      end)
+
+    typed_dt = %TypedAst.DataType{
+      name: name,
+      type_vars: Map.values(tv_map),
+      constructors: typed_ctors
+    }
+
+    {:ok, typed_dt, env2}
+  end
+
+  # ───────────────────────────────────────────────────────────────────
+  #  Helpers for allocating & mapping bound type variables
+  # ───────────────────────────────────────────────────────────────────
+
+  defp alloc_type_vars(var_names, env) do
+    Enum.map_reduce(var_names, env, fn v, e ->
+      {tv, e2} = Env.fresh_var(e, v)
+      {{v, tv}, e2}
+    end)
+    |> then(fn {pairs, e2} -> {Map.new(pairs), e2} end)
+  end
+
+  # ───────────────────────────────────────────────────────────────────
+  #  Extended type-AST → Types.t() converter
+  # ───────────────────────────────────────────────────────────────────
+
+  defp convert_type(%Ast.Identifier{name: :Int}), do: Types.t_int()
+  defp convert_type(%Ast.Identifier{name: :String}), do: Types.t_string()
+  defp convert_type(%Ast.Identifier{name: :Bool}), do: Types.t_bool()
+  defp convert_type(ast), do: convert_type(ast, %{})
+
+  # Identifier → built-in | bound var | 0-ary constructor
+  defp convert_type(%Ast.Identifier{name: n}, varmap) do
+    cond do
+      n == :Int -> Types.t_int()
+      n == :String -> Types.t_string()
+      n == :Bool -> Types.t_bool()
+      Map.has_key?(varmap, n) -> Map.fetch!(varmap, n)
+      # user-defined 0-ary type
+      true -> Types.TCon.new(n, [])
+    end
+  end
+
+  # Type application: e.g. `List Int` comes from the parser as
+  # `%Ast.FunctionCall{function: List, arguments: [Int]}`.
+  defp convert_type(%Ast.FunctionCall{function: f, arguments: args}, varmap) do
+    %Types.TCon{name: ctor, args: old} = convert_type(f, varmap)
+    new_args = Enum.map(args, &convert_type(&1, varmap))
+    %Types.TCon{name: ctor, args: old ++ new_args}
+  end
+
+  defp convert_type(%Ast.RecordType{row: row} = rec, _) when row not in [nil, :empty] do
+    raise "Row-polymorphic records are not implemented yet (#{inspect(rec)})"
+  end
+
+  defp convert_type(%Ast.RecordType{fields: fs}, varmap) do
+    field_map =
+      for {label, ast_t} <- fs, into: %{} do
+        {label, convert_type(ast_t, varmap)}
+      end
+
+    %Types.Record{fields: field_map}
+  end
+
+  # Fallback – extend as the grammar grows
+  defp convert_type(other, _map),
+    do: raise("Unsupported type syntax: #{inspect(other)}")
 end

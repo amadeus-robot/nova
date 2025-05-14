@@ -59,7 +59,7 @@ defmodule Nova.TypeChecker.IncrementalTest do
 
     tokens = Tokenizer.tokenize(head)
     {:ok, module, []} = Parser.parse_module(tokens)
-    IO.inspect module.name.name
+    IO.inspect(module.name.name)
 
     # lets get the module from there ^
 
