@@ -1,9 +1,9 @@
 defmodule Nova.Compiler.TypeChecker do
   @moduledoc """
-  Extended Hindley–Milner type‑checker for *Nova* following the design memo
-  dated 13 May 2025 (Algorithm W + layered InterfaceRegistry).
+  Extended Hindley–Milner type-checker for *Nova* following the design memo
+  dated 13 May 2025 (Algorithm W + layered InterfaceRegistry).
 
-  ── Public API ───────────────────────────────────────────────────────────────
+  ── Public API ───────────────────────────────────────────────────────────────
 
   * `check_block/4` – infer a batch of declarations in *namespace* `ns`,
     writing all inferred interfaces into the given *registry layer* `reg`.
@@ -27,17 +27,11 @@ defmodule Nova.Compiler.TypeChecker do
   @spec check_block([Ast.t()], atom, IR.t(), Env.t()) ::
           {:ok, [TypedAst.t()], Env.t()} | {:error, String.t()}
   def check_block(decls, ns, reg, env \\ Env.empty()) do
-    # NB: We do *not* store the namespace inside `Env`; keep it explicit.
-    IO.inspect({decls, ns, env})
-
-    Enum.reduce_while(decls, {:ok, [], env}, fn decl, {:ok, typed_acc, e} ->
-      IO.puts("!check declaration")
-
-      r =
-        case check_declaration(decl, ns, reg, e) do
-          {:ok, typed_decl, e2} -> {:cont, {:ok, [typed_decl | typed_acc], e2}}
-          {:error, _} = err -> {:halt, err}
-        end
+    Enum.reduce_while(decls, {:ok, [], env}, fn decl, {:ok, acc, e} ->
+      case check_declaration(decl, ns, reg, e) do
+        {:ok, typed_decl, e2} -> {:cont, {:ok, [typed_decl | acc], e2}}
+        {:error, _} = err -> {:halt, err}
+      end
     end)
     |> case do
       {:ok, typed_rev, e} -> {:ok, Enum.reverse(typed_rev), e}
@@ -50,19 +44,58 @@ defmodule Nova.Compiler.TypeChecker do
   # ---------------------------------------------------------------------------
 
   @spec check_declaration(Ast.t(), atom, IR.t(), Env.t()) ::
-          {:ok, TypedAst.t(), Env.t()} | {:error, String.t()}
-  defp check_declaration(%Ast.FunctionDeclaration{} = fun, ns, reg, env) do
-    infer_function(fun, ns, reg, env)
+          {:ok, TypedAst.t() | Ast.t(), Env.t()} | {:error, String.t()}
+  defp check_declaration(%Ast.FunctionDeclaration{} = fun, ns, reg, env),
+    do: infer_function(fun, ns, reg, env)
+
+  defp check_declaration(%Ast.TypeSignature{} = sig, ns, reg, env),
+    do: record_type_signature(sig, ns, reg, env)
+
+  defp check_declaration(%Ast.ImportDeclaration{} = imp, ns, reg, env),
+    do: process_import(imp, ns, reg, env)
+
+  # TODO: DataType, TypeAlias, ForeignImport, etc.
+  defp check_declaration(other, _ns, _reg, _env),
+    do: {:error, "Unsupported declaration #{inspect(other.__struct__)}"}
+
+  # ---------------------------------------------------------------------------
+  # ◈  Import handling  ◈
+  # ---------------------------------------------------------------------------
+
+  @spec process_import(Ast.ImportDeclaration.t(), atom, IR.t(), Env.t()) ::
+          {:ok, Ast.ImportDeclaration.t(), Env.t()} | {:error, String.t()}
+  defp process_import(
+         %Ast.ImportDeclaration{
+           module: %Ast.Identifier{name: mod_str},
+           items: items,
+           hiding?: hiding?,
+           alias: _al
+         } = imp,
+         _ns,
+         reg,
+         env
+       ) do
+    imported_ns = String.to_atom(mod_str)
+
+    with {:ok, exports} <- IR.list_exports(reg, imported_ns) do
+      selected =
+        cond do
+          items == [] and hiding? == false -> exports
+          hiding? == true -> Map.drop(exports, Enum.map(items, &import_key/1))
+          true -> Map.take(exports, Enum.map(items, &import_key/1))
+        end
+
+      env2 = Enum.reduce(selected, env, fn {id, sch}, e -> Env.extend(e, id, sch) end)
+      {:ok, imp, env2}
+    else
+      :error -> {:error, "Unknown module #{mod_str}"}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  defp check_declaration(%Ast.TypeSignature{} = sig, ns, reg, env) do
-    record_type_signature(sig, ns, reg, env)
-  end
-
-  # TODO DataType, TypeAlias, Import, ForeignImport, etc.
-  defp check_declaration(other, _ns, _reg, _env) do
-    {:error, "Unsupported declaration: #{inspect(other.__struct__)}"}
-  end
+  defp import_key(item) when is_binary(item), do: String.to_atom(item)
+  defp import_key({name, _}), do: String.to_atom(name)
+  defp import_key(other), do: other
 
   # ---------------------------------------------------------------------------
   # ◈  Function inference  ◈
@@ -71,30 +104,36 @@ defmodule Nova.Compiler.TypeChecker do
   @spec infer_function(Ast.FunctionDeclaration.t(), atom, IR.t(), Env.t()) ::
           {:ok, TypedAst.FunctionDeclaration.t(), Env.t()} | {:error, String.t()}
   defp infer_function(
-         %Ast.FunctionDeclaration{name: name, parameters: params, body: body, type_signature: sig} =
-           _fun,
+         %Ast.FunctionDeclaration{
+           name: name,
+           parameters: params,
+           body: body,
+           type_signature: sig
+         },
          ns,
          reg,
          env
        ) do
     {param_tys, env1} = allocate_params(params, env)
 
-    with {:ok, typed_body, s_body, env2} <- infer_expr(body, ns, reg, env1),
-         inferred_fun <- fold_arrow(Enum.reverse(param_tys), typed_body.type),
-         {:ok, final_ty, s_total} <- maybe_unify_signature(sig, inferred_fun, s_body) do
-      {typed_fun, env3} =
-        generalise_bind_and_publish(name, final_ty, s_total, ns, reg, env2, %{
-          params: params,
-          param_tys: param_tys,
-          body: typed_body,
-          explicit?: not is_nil(sig)
-        })
-
+    with {:ok, body_node, s_body, env2} <- infer_expr(body, ns, reg, env1),
+         inferred_fun <- fold_arrow(Enum.reverse(param_tys), body_node.type),
+         {:ok, final_ty, s_total} <- maybe_unify_signature(sig, inferred_fun, s_body),
+         {typed_fun, env3} <-
+           generalise_bind_and_publish(name, final_ty, s_total, ns, reg, env2, %{
+             params: params,
+             param_tys: param_tys,
+             body: body_node,
+             explicit?: not is_nil(sig)
+           }) do
       {:ok, typed_fun, env3}
     end
   end
 
-  # Allocate fresh type vars for λ‑params and extend the environment.
+  # ---------------------------------------------------------------------------
+  # fresh vars for λ params
+  # ---------------------------------------------------------------------------
+
   @spec allocate_params([Ast.Identifier.t()], Env.t()) :: {[Types.t()], Env.t()}
   defp allocate_params(params, env) do
     Enum.map_reduce(params, env, fn %Ast.Identifier{name: id}, e ->
@@ -104,7 +143,10 @@ defmodule Nova.Compiler.TypeChecker do
     end)
   end
 
-  # Handle optional explicit signature.
+  # ---------------------------------------------------------------------------
+  # explicit signature unification (optional)
+  # ---------------------------------------------------------------------------
+
   @spec maybe_unify_signature(Ast.TypeSignature.t() | nil, Types.t(), Subst.t()) ::
           {:ok, Types.t(), Subst.t()} | {:error, String.t()}
   defp maybe_unify_signature(nil, inferred, s_body), do: {:ok, inferred, s_body}
@@ -114,26 +156,28 @@ defmodule Nova.Compiler.TypeChecker do
 
     with {:ok, s_unify} <-
            Unify.unify(Subst.s_apply(s_body, inferred), Subst.s_apply(s_body, explicit)) do
-      final_ty = Subst.s_apply(s_unify, explicit)
-      {:ok, final_ty, Subst.compose(s_unify, s_body)}
+      {:ok, Subst.s_apply(s_unify, explicit), Subst.compose(s_unify, s_body)}
     end
   end
 
-  # Generalise, extend env, publish to registry; return typed declaration.
+  # ---------------------------------------------------------------------------
+  # bind Generalise & publish
+  # ---------------------------------------------------------------------------
+
   @spec generalise_bind_and_publish(atom, Types.t(), Subst.t(), atom, IR.t(), Env.t(), map) ::
           {TypedAst.FunctionDeclaration.t(), Env.t()}
-  defp generalise_bind_and_publish(name, type, subst, ns, reg, env, info) do
-    env1 = apply_env(subst, env)
+  defp generalise_bind_and_publish(name, type, sub, ns, reg, env, info) do
+    env1 = apply_env(sub, env)
     scheme = generalise(type, env1)
     env2 = Env.extend(env1, name, scheme)
 
+    params_typed =
+      Enum.zip(info.params, info.param_tys)
+      |> Enum.map(fn {%Ast.Identifier{name: n}, t} -> %TypedAst.Identifier{name: n, type: t} end)
+
     typed = %TypedAst.FunctionDeclaration{
       name: name,
-      parameters:
-        Enum.zip(info.params, info.param_tys)
-        |> Enum.map(fn {%Ast.Identifier{name: n}, t} ->
-          %TypedAst.Identifier{name: n, type: t}
-        end),
+      parameters: params_typed,
       body: info.body,
       type: type,
       explicit_signature?: info.explicit?
@@ -150,55 +194,45 @@ defmodule Nova.Compiler.TypeChecker do
   @type infer_result :: {:ok, TypedAst.t(), Subst.t(), Env.t()} | {:error, String.t()}
 
   @spec infer_expr(Ast.t(), atom, IR.t(), Env.t()) :: infer_result
-  # Literals – limited set for now
-  defp infer_expr(%Ast.Literal{type: :number, value: v}, _ns, _reg, env) do
-    typed = %TypedAst.Literal{value: v, type: Types.t_int()}
-    {:ok, typed, Subst.new(), env}
-  end
+  # literals
+  defp infer_expr(%Ast.Literal{type: :number, value: v}, _ns, _reg, env),
+    do: {:ok, %TypedAst.Literal{value: v, type: Types.t_int()}, Subst.new(), env}
 
-  defp infer_expr(%Ast.Literal{type: :string, value: v}, _ns, _reg, env) do
-    typed = %TypedAst.Literal{value: v, type: Types.t_string()}
-    {:ok, typed, Subst.new(), env}
-  end
+  defp infer_expr(%Ast.Literal{type: :string, value: v}, _ns, _reg, env),
+    do: {:ok, %TypedAst.Literal{value: v, type: Types.t_string()}, Subst.new(), env}
 
-  defp infer_expr(%Ast.Literal{type: :bool, value: v}, _ns, _reg, env) do
-    typed = %TypedAst.Literal{value: v, type: Types.t_bool()}
-    {:ok, typed, Subst.new(), env}
-  end
+  defp infer_expr(%Ast.Literal{type: :bool, value: v}, _ns, _reg, env),
+    do: {:ok, %TypedAst.Literal{value: v, type: Types.t_bool()}, Subst.new(), env}
 
-  # Identifier lookup (env → registry)
+  # identifier lookup
   defp infer_expr(%Ast.Identifier{name: id}, ns, reg, env) do
-    with {:ok, scheme} <- lookup(id, ns, reg, env),
-         {t, env2} <- instantiate(scheme, env) do
-      typed = %TypedAst.Identifier{name: id, type: t}
-      {:ok, typed, Subst.new(), env2}
+    with {:ok, sch} <- lookup(id, ns, reg, env),
+         {t, env2} <- instantiate(sch, env) do
+      {:ok, %TypedAst.Identifier{name: id, type: t}, Subst.new(), env2}
     else
       :error -> {:error, "Unbound identifier #{id}"}
     end
   end
 
-  # Lambda
-  defp infer_expr(%Ast.Lambda{parameters: params, body: body} = _lam, ns, reg, env) do
+  # lambda
+  defp infer_expr(%Ast.Lambda{parameters: params, body: body}, ns, reg, env) do
     {param_tys, env1} = allocate_params(params, env)
 
     with {:ok, body_node, s_body, env2} <- infer_expr(body, ns, reg, env1) do
       fun_t = fold_arrow(Enum.reverse(param_tys), body_node.type)
 
-      typed = %TypedAst.Lambda{
-        parameters:
-          Enum.zip(params, param_tys)
-          |> Enum.map(fn {%Ast.Identifier{name: n}, t} ->
-            %TypedAst.Identifier{name: n, type: t}
-          end),
-        body: body_node,
-        type: fun_t
-      }
+      params_typed =
+        Enum.zip(params, param_tys)
+        |> Enum.map(fn {%Ast.Identifier{name: n}, t} ->
+          %TypedAst.Identifier{name: n, type: t}
+        end)
 
+      typed = %TypedAst.Lambda{parameters: params_typed, body: body_node, type: fun_t}
       {:ok, typed, s_body, env2}
     end
   end
 
-  # Function call / application
+  # application
   defp infer_expr(%Ast.FunctionCall{function: fn_ast, arguments: args}, ns, reg, env) do
     with {:ok, fn_node, s_fn, env1} <- infer_expr(fn_ast, ns, reg, env),
          {:ok, arg_nodes, s_args, env2, arg_tys} <- infer_args(args, ns, reg, env1),
@@ -208,17 +242,12 @@ defmodule Nova.Compiler.TypeChecker do
            Unify.unify(Subst.s_apply(s_args, fn_node.type), Subst.s_apply(s_args, want_t)),
          s_total <- Subst.compose(s_unify, s_args),
          res_ty <- Subst.s_apply(s_total, res_tv) do
-      typed = %TypedAst.FunctionCall{
-        function: fn_node,
-        arguments: arg_nodes,
-        type: res_ty
-      }
-
+      typed = %TypedAst.FunctionCall{function: fn_node, arguments: arg_nodes, type: res_ty}
       {:ok, typed, s_total, env3}
     end
   end
 
-  # If‑expression
+  # if
   defp infer_expr(
          %Ast.IfExpression{condition: c, then_branch: t_b, else_branch: e_b},
          ns,
@@ -226,7 +255,7 @@ defmodule Nova.Compiler.TypeChecker do
          env
        ) do
     with {:ok, cond_node, s_c, env1} <- infer_expr(c, ns, reg, env),
-         {:ok, nil} <- unify_bool(cond_node.type),
+         {:ok, _} <- Unify.unify(cond_node.type, Types.t_bool()),
          {:ok, t_node, s_t, env2} <- infer_expr(t_b, ns, reg, env1),
          {:ok, e_node, s_e, env3} <- infer_expr(e_b, ns, reg, env2),
          {:ok, s_res} <-
@@ -245,21 +274,17 @@ defmodule Nova.Compiler.TypeChecker do
     end
   end
 
-  # Catch‑all
+  # fallback
   defp infer_expr(expr, _ns, _reg, _env),
-    do: {:error, "Expression not yet supported: #{expr.__struct__}"}
+    do: {:error, "Expression not supported: #{expr.__struct__}"}
 
   # ---------------------------------------------------------------------------
-  # ◈  Helpers  ◈
+  # ◈  Misc helpers  ◈
   # ---------------------------------------------------------------------------
 
-  # Fold a right‑associative arrow chain: [a,b,c], res ⇒ a -> b -> c -> res
-  @spec fold_arrow([Types.t()], Types.t()) :: Types.t()
   defp fold_arrow([], res), do: res
   defp fold_arrow([h | t], res), do: fold_arrow(t, Types.t_arrow(h, res))
 
-  # Perform `generalise` after applying current substitution to `type`.
-  @spec generalise(Types.t(), Env.t()) :: Scheme.t()
   defp generalise(type, env) do
     ftv_env = Types.free_type_vars_env(env)
     ftv_t = Types.free_type_vars(type)
@@ -267,9 +292,7 @@ defmodule Nova.Compiler.TypeChecker do
     Scheme.new(qvars, type)
   end
 
-  # Apply substitution to every scheme in Env.
-  @spec apply_env(Subst.t(), Env.t()) :: Env.t()
-  defp apply_env(sub, %Env{m: m, counter: c} = _e) do
+  defp apply_env(sub, %Env{m: m, counter: c}) do
     m2 =
       Enum.into(m, %{}, fn {k, %Scheme{vars: q, type: t} = sch} ->
         {k, %Scheme{sch | type: Subst.s_apply(sub, t)}}
@@ -278,21 +301,17 @@ defmodule Nova.Compiler.TypeChecker do
     %Env{m: m2, counter: c}
   end
 
-  # Instantiate scheme → fresh copy.
-  @spec instantiate(Scheme.t(), Env.t()) :: {Types.t(), Env.t()}
   defp instantiate(%Scheme{vars: q, type: t}, env) do
-    {sub, env2} =
+    {sub_pairs, env2} =
       Enum.map_reduce(q, env, fn %TVar{id: id}, e ->
         {fresh, e2} = Env.fresh_var(e, "i")
         {{id, fresh}, e2}
       end)
 
-    sub_map = Map.new(sub)
-    {Subst.s_apply(sub_map, t), env2}
+    sub = Map.new(sub_pairs)
+    {Subst.s_apply(sub, t), env2}
   end
 
-  # Lookup identifier first in env, then registry.
-  @spec lookup(atom, atom, IR.t(), Env.t()) :: {:ok, Scheme.t()} | :error
   defp lookup(id, ns, reg, env) do
     case Env.lookup(env, id) do
       {:ok, sch} -> {:ok, sch}
@@ -300,27 +319,13 @@ defmodule Nova.Compiler.TypeChecker do
     end
   end
 
-  # Publish an interface + typed ast to registry layer.
-  @spec publish(IR.t(), atom, atom, Scheme.t(), TypedAst.t()) :: :ok
   defp publish(reg, ns, id, scheme, ast), do: IR.put(reg, ns, id, scheme, ast)
 
-  # Ensure a type is Bool.
-  defp unify_bool(t), do: Unify.unify(t, Types.t_bool())
-
-  # Convert surface type syntax (AST) → internal representation.
-  # *Very* incomplete – extend as needed.
-  @spec convert_type(Ast.t()) :: Types.t()
-  defp convert_type(%Ast.Identifier{name: :Int}), do: Types.t_int()
-  defp convert_type(%Ast.Identifier{name: :String}), do: Types.t_string()
-  defp convert_type(%Ast.Identifier{name: :Bool}), do: Types.t_bool()
-  defp convert_type(other), do: raise("Type conversion TODO for #{inspect(other)}")
-
-  # Infer argument list (left‑to‑right order; accumulates subst).
   @spec infer_args([Ast.t()], atom, IR.t(), Env.t()) ::
           {:ok, [TypedAst.t()], Subst.t(), Env.t(), [Types.t()]} | {:error, String.t()}
   defp infer_args(args, ns, reg, env) do
     Enum.reduce_while(args, {:ok, [], Subst.new(), env, []}, fn arg,
-                                                                {status, acc_nodes, s_acc, e_acc,
+                                                                {:ok, acc_nodes, s_acc, e_acc,
                                                                  tys} ->
       case infer_expr(arg, ns, reg, e_acc) do
         {:ok, node, s_arg, e2} ->
@@ -340,8 +345,12 @@ defmodule Nova.Compiler.TypeChecker do
     end
   end
 
-  # Record a *stand‑alone* type signature (no implementation yet).
-  # Simply adds it to Env so that later FunctionDecl can pick it up.
+  # very incomplete type converter
+  defp convert_type(%Ast.Identifier{name: :Int}), do: Types.t_int()
+  defp convert_type(%Ast.Identifier{name: :String}), do: Types.t_string()
+  defp convert_type(%Ast.Identifier{name: :Bool}), do: Types.t_bool()
+  defp convert_type(other), do: raise("TODO convert type #{inspect(other)}")
+
   @spec record_type_signature(Ast.TypeSignature.t(), atom, IR.t(), Env.t()) ::
           {:ok, TypedAst.TypeSignature.t(), Env.t()}
   defp record_type_signature(%Ast.TypeSignature{name: name, type: ast_ty} = sig, _ns, _reg, env) do

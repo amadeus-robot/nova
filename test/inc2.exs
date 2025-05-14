@@ -48,7 +48,7 @@ defmodule Nova.TypeChecker.IncrementalTest do
     end
   end
 
-  @source File.read!("lib/parser.nv")
+  @source File.read!("lib/ast.nv")
   test "incrementally adds each declaration to the environment" do
     root = Nova.InterfaceRegistry.new_root!()
     layer = Nova.InterfaceRegistry.begin_batch(root)
@@ -59,6 +59,7 @@ defmodule Nova.TypeChecker.IncrementalTest do
 
     tokens = Tokenizer.tokenize(head)
     {:ok, module, []} = Parser.parse_module(tokens)
+    IO.inspect module.name.name
 
     # lets get the module from there ^
 
@@ -69,7 +70,7 @@ defmodule Nova.TypeChecker.IncrementalTest do
     |> Enum.reduce(env, fn s, e ->
       IO.puts("# adding chunk")
       IO.puts(s)
-      process_chunk(s, :TempNS, layer)
+      process_chunk(s, :"#{module.name.name}", layer)
     end)
   end
 end
