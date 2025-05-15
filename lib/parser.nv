@@ -1,72 +1,169 @@
-module Parser where
+module Nova.Compiler.Parser where
 
--------------------#section-------------------
+import Prelude
+import Data.Array (Array)
+import Data.Either (Either)
+import Nova.Compiler.Tokenizer (Token)
+import Nova.Compiler.Ast as Ast
 
-x = 1
+import Partial.Unsafe (unsafeCrashWith)
 
--------------------#section-------------------
+notImplementedYet :: String -> String
+notImplementedYet = unsafeCrashWith "Not implemented yet"
 
-import Ast as Ast
-import Token as Tok
+type Parser a = Array Token -> Either String ( Tuple a (Array Token) )
 
--------------------#section-------------------
+type Tokens = Array Token
 
-data Unit = Unit
+type ParseError = String
 
-data Either e a = Left e | Right a
+-------------------------------------------------------------------------------
+-- Newline‑handling helpers
+-------------------------------------------------------------------------------
+skipNewlines        :: Tokens -> Tokens
+dropNewlines        :: Tokens -> Tokens
+stripNewlines       :: Tokens -> Tokens
+ensureConsumed      :: Tokens -> Either ParseError Unit
 
-data Maybe a  = Nothing | Just a
+-------------------------------------------------------------------------------
+-- Top‑level declaration batch
+-------------------------------------------------------------------------------
+parseDeclarations   :: Tokens -> Either ParseError { declarations :: Array Ast.Declaration , rest :: Tokens }
+parseDeclaration    :: Parser Ast.Declaration
 
-data List a   = Nil | Cons a (List a)
+-------------------------------------------------------------------------------
+-- Module & import declarations
+-------------------------------------------------------------------------------
+parseModule                 :: Parser Ast.Module
+parseImport                 :: Parser Ast.ImportDeclaration
+parseImportAlias            :: Tokens -> Either ParseError ( Tuple (Maybe String) Tokens )
+parseImportSelectors        :: Tokens -> Either ParseError ( Tuple (Array Ast.ImportItem) Boolean Tokens )
+parseParenImportList        :: Tokens -> Either ParseError ( Tuple (Array Ast.ImportItem) Tokens )
+parseImportItem             :: Parser Ast.ImportItem
+parseConstructors           :: Tokens -> Either ParseError ( Tuple Ast.ImportItem Tokens )
 
-type Tokens   = List Tok.Token
+-------------------------------------------------------------------------------
+-- Foreign imports
+-------------------------------------------------------------------------------
+parseForeignImportSimple    :: Parser Ast.ForeignImport
+parseForeignImport          :: Parser Ast.ForeignImport
 
-data Tuple a b = Tuple a b
+-------------------------------------------------------------------------------
+-- Record patterns & fields
+-------------------------------------------------------------------------------
+parseRecordPattern          :: Parser Ast.RecordPattern
+parseRecordFieldPattern     :: Parser (Tuple String Ast.Pattern)
 
--------------------#section-------------------
+-------------------------------------------------------------------------------
+-- Data/type declarations
+-------------------------------------------------------------------------------
+parseDataDeclaration        :: Parser Ast.DataType
+parseDataConstructors       :: Parser (Array Ast.DataConstructor)
+parseDataConstructor        :: Parser Ast.DataConstructor
 
-foreign import dropWhile      :: forall a. (a -> Boolean) -> List a -> List a
-foreign import reject         :: forall a. (a -> Boolean) -> List a -> List a
-foreign import reverse        :: forall a. List a -> List a
-foreign import map            :: forall a b. (a -> b) -> List a -> List b
-foreign import splitWhile     :: forall a. (a -> Boolean) -> List a -> Tuple (List a) (List a)
-foreign import findIndex      :: forall a. (a -> Boolean) -> List a -> Maybe Int
-foreign import length         :: forall a. List a -> Int
-foreign import head           :: forall a. List a -> a
+-------------------------------------------------------------------------------
+-- Type classes & instances
+-------------------------------------------------------------------------------
+parseTypeClass              :: Parser Ast.TypeClass
+parseTypeClassInstance      :: Parser Ast.TypeClassInstance
+skipSuperclassConstraints   :: Tokens -> Either ParseError ( Tuple Tokens Tokens )
+dropInstanceConstraints     :: Tokens -> Tokens
 
--- string / numeric helpers
-foreign import (<> )          :: String -> String -> String
-foreign import showInt        :: Int -> String
+-------------------------------------------------------------------------------
+-- Functions with optional type signatures
+-------------------------------------------------------------------------------
+splitTypeAndRest            :: Tokens -> String -> (Tuple Tokens Tokens)
+parseFunctionWithTypeSignature :: Parser Ast.FunctionDeclaration
 
--------------------#section-------------------
+-------------------------------------------------------------------------------
+-- Types & type signatures
+-------------------------------------------------------------------------------
+parseTypeSignature          :: Parser Ast.TypeSignature
+parseType                   :: Parser Ast.TypeExpr
+parseForAllType             :: Parser Ast.ForAllType
+parseTypeAlias              :: Parser Ast.TypeAlias
+parseFunctionType           :: Parser Ast.TypeExpr
+parseRecordType             :: Parser Ast.RecordType
+parseRecordField            :: Parser (Tuple String Ast.TypeExpr)
+parseTypeTerm               :: Parser Ast.TypeExpr
+parseListType               :: Parser Ast.TypeExpr
+parseTupleType              :: Parser Ast.TypeExpr
+parseBasicType              :: Parser Ast.TypeExpr
+parseBasicTypeFallback      :: Parser Ast.TypeExpr
+parseTypeAtom               :: Parser Ast.TypeExpr
 
-isNewline :: Tok.Token -> Boolean
-isNewline tok = Tok.type tok == "newline"
+-------------------------------------------------------------------------------
+-- Function declarations (no signature)
+-------------------------------------------------------------------------------
+parseFunctionDeclaration    :: Parser Ast.FunctionDeclaration
+parseFunctionParameters     :: Parser (Array Ast.Pattern)
 
--------------------#section-------------------
+-------------------------------------------------------------------------------
+-- Patterns (simple & general)
+-------------------------------------------------------------------------------
+parseSimplePattern          :: Parser Ast.Pattern
+parsePattern                :: Parser Ast.Pattern
+parseConstructorPattern     :: Parser Ast.Pattern
+parseTuplePattern           :: Parser Ast.Pattern
+parseListPattern            :: Parser Ast.Pattern
 
-skipNewlines :: Tokens -> Tokens
-skipNewlines = dropWhile isNewline
+-------------------------------------------------------------------------------
+-- Lambda & expression entry point
+-------------------------------------------------------------------------------
+parseLambda                 :: Parser Ast.Expression
+parseExpression             :: Parser Ast.Expression
 
--- drops exactly the *leading* newlines (tail‑recursive pattern‑match)
-dropNewlines :: Tokens -> Tokens
-dropNewlines (Cons t ts) | isNewline t = dropNewlines ts
-dropNewlines xs                         = xs
+-------------------------------------------------------------------------------
+-- Let‑bindings, if/else, case, do
+-------------------------------------------------------------------------------
+parseLetExpression          :: Parser Ast.Expression
+parseBinding                :: Parser (Tuple Ast.Pattern Ast.Expression)
+parseIfExpression           :: Parser Ast.Expression
+parseCaseExpression         :: Parser Ast.Expression
+parseCaseClauses            :: Tokens -> Ast.Expression -> Array Ast.CaseClause -> Either ParseError ( Tuple Ast.Expression Tokens )
+parseCaseClause             :: Parser Ast.CaseClause
+parseDoBlock                :: Parser Ast.DoBlock
+parseDoExpression           :: Parser Ast.Expression
 
-stripNewlines :: Tokens -> Tokens
-stripNewlines = reject isNewline
+-------------------------------------------------------------------------------
+-- Binary‑expression precedence ladder
+-------------------------------------------------------------------------------
+parseBinaryExpression       :: Parser Ast.Expression
+parseDollarExpression       :: Parser Ast.Expression
+parseLogicalExpression      :: Parser Ast.Expression
+parseComparisonExpression   :: Parser Ast.Expression
+parseAdditiveExpression     :: Parser Ast.Expression
+parseMultiplicativeExpression :: Parser Ast.Expression
 
-ensureConsumed :: Tokens -> Either String Unit
-ensureConsumed rest =
-  case skipNewlines rest of
-    Nil               -> Right Unit
-    Cons tok _        ->
-      let msg = "unexpected tokens after successful parse – "
-                <> Tok.type tok <> ":" <> Tok.value tok
-                <> " at line " <> showInt (Tok.line tok)
-                <> ", col " <> showInt (Tok.column tok)
-      in Left msg
+-------------------------------------------------------------------------------
+-- Function application helpers
+-------------------------------------------------------------------------------
+parseApplication            :: Parser Ast.Expression
+collectApplicationArgs      :: Tokens -> Array Ast.Expression -> Int -> ( Tuple (Array Ast.Expression) Tokens )
+parseTerm                   :: Parser Ast.Expression
 
--------------------#section-------------------
+-------------------------------------------------------------------------------
+-- Literals & compound terms
+-------------------------------------------------------------------------------
+parseListLiteral            :: Parser Ast.List
+parseListComprehension      :: Parser Ast.ListComprehension
+parseGenerator              :: Parser Ast.Generator
+parseTupleLiteral           :: Parser Ast.Tuple
+parseLiteral                :: Parser Ast.Literal
+parseStringLiteral          :: Tokens -> Either ParseError ( Tuple String Tokens )
 
-type ParseResult a = Either String (Tuple a Tokens)
+-------------------------------------------------------------------------------
+-- Low‑level token helpers
+-------------------------------------------------------------------------------
+parseLabel                  :: Parser Ast.Identifier
+parseIdentifier             :: Parser Ast.Identifier
+parseQualifiedIdentifier    :: Parser Ast.Identifier
+parseAny                    :: Array (Parser a) -> Parser a
+parseMany                   :: Parser a -> Tokens -> Either ParseError ( Tuple (Array a) Tokens )
+parseSeparated              :: Parser a -> (Tokens -> Either ParseError ( Tuple b Tokens )) -> Tokens -> Either ParseError ( Tuple (Array a) Tokens )
+expectKeyword               :: Tokens -> String -> Either ParseError ( Tuple String Tokens )
+expectOperator              :: Tokens -> String -> Either ParseError ( Tuple String Tokens )
+expectDelimiter             :: Tokens -> String -> Either ParseError ( Tuple String Tokens )
+skipUntilEnd                :: Tokens -> Tokens
+
+

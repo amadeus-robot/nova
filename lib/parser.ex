@@ -247,17 +247,31 @@ defmodule Nova.Compiler.Parser do
 
   defp parse_record_pattern(_), do: {:error, "Expected record pattern"}
 
-  # { head }            – shorthand for field label == bound var
-  # { head = h }        – label + explicit pattern
+  # ------------------------------------------------------------------
+  # Record-pattern field:   { head       }  |  { head = h }
+  #                         { head : tok }  |  { head = tok }
+  # ------------------------------------------------------------------
   defp parse_record_field_pattern(tokens) do
-    with {:ok, lbl, tokens} <- parse_label(tokens) do
-      case expect_operator(tokens, "=") do
-        {:ok, _, tokens} ->
+    with {:ok, lbl, tokens} <- IO.inspect(parse_label(tokens)) do
+      cond do
+        # ──────────────── `:` delimiter ────────────────
+        match?({:ok, _, _}, expect_delimiter(tokens, ":")) ->
+          {:ok, _, tokens} = expect_delimiter(tokens, ":")
+
           with {:ok, pat, tokens} <- parse_pattern(tokens) do
             {:ok, {lbl.name, pat}, tokens}
           end
 
-        {:error, _} ->
+        # ──────────────── `=` operator ────────────────
+        match?({:ok, _, _}, expect_operator(tokens, "=")) ->
+          {:ok, _, tokens} = expect_operator(tokens, "=")
+
+          with {:ok, pat, tokens} <- parse_pattern(tokens) do
+            {:ok, {lbl.name, pat}, tokens}
+          end
+
+        # ─────────── shorthand  { head } ───────────────
+        true ->
           {:ok, {lbl.name, %Ast.Identifier{name: lbl.name}}, tokens}
       end
     end
@@ -509,7 +523,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # 2. Parser helpers 
-  defp parse_record_type([%Token{type: :delimiter, value: "{"} | rest]) do
+  def parse_record_type([%Token{type: :delimiter, value: "{"} | rest]) do
     with {:ok, fields, rest} <-
            parse_separated(&parse_record_field/1, &expect_delimiter(&1, ","), rest),
          {:ok, _, rest} <- expect_delimiter(rest, "}") do
@@ -517,7 +531,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_record_type(_), do: {:error, "Expected record type"}
+  def parse_record_type(_), do: {:error, "Expected record type"}
 
   defp parse_record_field(tokens) do
     with {:ok, label, tokens} <- parse_label(tokens),
@@ -618,10 +632,13 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Parse a type atom (used for application args)
-  defp parse_type_atom(tokens) do
+  def parse_type_atom(tokens) do
     case tokens do
-      [%Token{type: :identifier, value: name} | rest] ->
-        {:ok, %Ast.Identifier{name: name}, rest}
+      [%Token{type: :delimiter, value: "{"} | _] = toks ->
+        parse_record_type(toks)
+
+      [%Token{type: :identifier, value: name} | _] = toks ->
+        parse_qualified_identifier(toks)
 
       [%Token{type: :delimiter, value: "("} | rest] ->
         with {:ok, type, rest} <- parse_type(rest),
@@ -689,10 +706,11 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Pattern parsing for other contexts like case clauses
-  defp parse_pattern(tokens) do
+  def parse_pattern(tokens) do
     parse_any(
       [
         &parse_record_pattern/1,
+        &parse_wildcard_pattern/1,
         &parse_constructor_pattern/1,
         &parse_tuple_pattern/1,
         &parse_list_pattern/1,
@@ -732,6 +750,11 @@ defmodule Nova.Compiler.Parser do
       {:error, _} -> {:error, "Expected constructor pattern"}
     end
   end
+
+  def parse_wildcard_pattern([%Token{type: :identifier, value: "_"} | rest]),
+    do: {:ok, %Ast.Wildcard{}, rest}
+
+  def parse_wildcard_pattern(_), do: {:error, "Expected wildcard"}
 
   defp parse_tuple_pattern(tokens) do
     case tokens do
@@ -874,7 +897,7 @@ defmodule Nova.Compiler.Parser do
   # Parse case clauses recursively, collecting all clauses
   def parse_case_clauses(tokens, expression, acc) do
     # Try to parse a single case clause
-    case parse_case_clause(tokens) do
+    case IO.inspect(parse_case_clause(tokens)) do
       {:ok, clause, remaining} ->
         # Successfully parsed a clause, continue with the remaining tokens
         parse_case_clauses(remaining, expression, [clause | acc])
@@ -896,9 +919,10 @@ defmodule Nova.Compiler.Parser do
     end)
   end
 
-  defp clause_start?(tokens) do
+  def clause_start?(tokens) do
     # "pattern  ->"  without consuming the tokens
     with {:ok, _pat, rest} <- parse_pattern(tokens),
+         {_, _guard, rest} <- maybe_parse_guard(rest),
          {:ok, _arrow, _} <- expect_operator(rest, "->") do
       true
     else
@@ -944,13 +968,15 @@ defmodule Nova.Compiler.Parser do
         {:error, "no more to parse"}
 
       [%Token{column: indent} | _] ->
-        with {:ok, pattern, tokens} <- parse_pattern(tokens),
+        with {:ok, pattern, tokens} <- IO.inspect(parse_pattern(tokens)),
+             {_, guard, tokens} <- IO.inspect(maybe_parse_guard(tokens)),
              {:ok, _, tokens} <- expect_operator(tokens, "->") do
           {body_tokens, rest} = take_body(tokens, [], indent)
 
           with {:ok, body, remaining} <- parse_expression(body_tokens),
                [] <- skip_newlines(remaining) do
-            {:ok, %Ast.CaseClause{pattern: pattern, body: body}, drop_newlines(rest)}
+            {:ok, %Ast.CaseClause{pattern: pattern, guard: guard, body: body},
+             drop_newlines(rest)}
           else
             {:error, reason} -> {:error, reason}
             _ -> {:error, "unexpected tokens after case-clause body"}
@@ -958,6 +984,18 @@ defmodule Nova.Compiler.Parser do
         end
     end
   end
+
+  def maybe_parse_guard([%Token{type: :operator, value: "|"} | rest] = all) do
+    case IO.inspect(parse_expression(rest)) do
+      {:ok, guard_ast, rest} ->
+        {:ok, guard_ast, rest}
+
+      {:error, _} ->
+        {:error, nil, all}
+    end
+  end
+
+  def maybe_parse_guard(tokens), do: {:error, nil, tokens}
 
   defp parse_do_block(tokens) do
     with {:ok, _, tokens} <- expect_keyword(tokens, "do"),

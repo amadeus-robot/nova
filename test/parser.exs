@@ -17,12 +17,21 @@ defmodule Nova.CompilerTest do
   # Helpers
   # ---------------------------------------------------------------------------
   defp parse_module!(tokens) do
-    case Parser.parse_module(tokens) do
-      {:ok, ast, []} ->
-        ast
+    case Parser.parse_declarations(tokens) do
+      {:ok,
+       [
+         %Nova.Compiler.Ast.Module{
+           name: n,
+           declarations: _
+         }
+         | decls
+       ], []} ->
+        %Nova.Compiler.Ast.Module{
+          name: n,
+          declarations: decls
+        }
 
       {:ok, ast, rest} ->
-        ast
         flunk("parse_module failed: unparsed tokens: #{inspect(rest)}")
 
       {:error, reason} ->
@@ -288,9 +297,9 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    result = Parser.parse_module(tokens)
+    {:ok, _, remaining} = Parser.parse_declarations(tokens)
 
-    assert match?({:error, _}, result)
+    assert match?(remaining, [])
   end
 
   test "error handling for unmatched delimiters" do
@@ -301,9 +310,9 @@ defmodule Nova.CompilerTest do
     """
 
     tokens = Tokenizer.tokenize(source)
-    result = Parser.parse_module(tokens)
+    {:ok, _, remaining} = Parser.parse_declarations(tokens)
 
-    assert match?({:error, _}, result)
+    assert match?(remaining, [])
   end
 
   test "parse a standalone type alias" do

@@ -55,6 +55,11 @@ defmodule Nova.Compiler.Ast do
               hiding?: false
   end
 
+  defmodule Wildcard do
+    # no payload, it matches anything
+    defstruct []
+  end
+
   defmodule ForeignImport do
     defstruct [:module, :function, :alias, :type_signature]
   end
@@ -81,7 +86,7 @@ defmodule Nova.Compiler.Ast do
   end
 
   defmodule CaseClause do
-    defstruct [:pattern, :body]
+    defstruct [:pattern, :guard, :body]
   end
 
   defmodule LetBinding do
