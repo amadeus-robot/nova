@@ -1,203 +1,184 @@
 module Nova.Compiler.Ast where
 
--------------------#section-------------------
+data Tuple a b = Tuple a b
+data Maybe a = Just a | Nothing
+data QualifiedIdentifier = String
+data Array a = Array a
 
--- import Prelude
+type Position =
+  { line :: Int
+  , column :: Int
+  , pos :: Int
+  }
 
--- ─────────────────────────────────────────────────────────────────────────────
---  Simple placeholders that will be expanded in the type-checker work
--- ─────────────────────────────────────────────────────────────────────────────
-data Expression      = ExprPlaceholder
-data TypeExpr        = TyPlaceholder
-data Constraint      = ConstraintPlaceholder
-data Pattern         = PatPlaceholder
-data RowTail         = RowEmpty | RowVar String | RowWild
+data TokenType = TTKeyword
+  | TTIdentifier
+  | TTOperator
+  | TTNumber
+  | TTString
+  | TTChar
+  | TTDelimiter
+  | TTUnrecognized
+  | TTNewline
 
--- Helper for field lists (keeps the record syntax readable)
-data KVPair k v = KVPair k v
+type Token =
+  { ttype :: TokenType
+  , value :: String
+  , line :: Int
+  , column :: Int
+  , pos :: Int
+  }
+
+-- Result type for parser functions
+data ParseOutput a = Ok a (Array Token) | Error String
+
+-- AST Node Types (defined as they are needed)
+
+data Expression
+  = ELambda { parameters :: Array Pattern, body :: Expression }
+  | ELetBinding { bindings :: Array (Tuple Pattern Expression), body :: Expression }
+  | EIfExpression { condition :: Expression, thenBranch :: Expression, elseBranch :: Expression }
+  | ECaseExpression { expression :: Expression, cases :: Array CaseClause }
+  | EDoBlock { expressions :: Array DoStatement }
+  | EBinaryOp { op :: String, left :: Expression, right :: Expression }
+  | EApplication { func :: Expression, arguments :: Array Expression } -- Replaces generic FunctionCall for expressions
+  | ERecordLiteral { fields :: Array (Tuple String Expression) }
+  | ELiteral LiteralValue
+  | EList { elements :: Array Expression }
+  | EListComprehension { expression :: Expression, generators :: Array Generator, guards :: Array Expression } -- guards added
+  | ETuple { elements :: Array Expression }
+  | EIdentifier String -- Simple identifier
+  | EQualifiedIdentifier (Array String) -- Path like Mod.Sub.name
+  | EParenthesized Expression -- For ((expr))
+
+data LiteralValue
+  = LNumber String
+  | LString String
+  | LChar String
+
+data Pattern
+  = PRecordPattern { fields :: Array (Tuple String Pattern) }
+  | PWildcard
+  | PConstructor { constructor :: QualifiedIdentifier, arguments :: Array Pattern } -- Replaces FunctionCall for patterns
+  | PTuplePattern { elements :: Array Pattern }
+  | PListPattern { elements :: Array Pattern }
+  | PLiteral LiteralValue
+  | PIdentifier String -- Simple identifier pattern
+  | PParenthesized Pattern -- For ((pattern))
+
+data Type
+  = TForAll { vars :: Array String, ttype :: Type }
+  | TFunctionType { left :: Type, right :: Type } -- BinaryOp "->" becomes this
+  | TRecordType { fields :: Array (Tuple String Type) }
+  | TTypeApplication { constructor :: Type, arguments :: Array Type } -- Replaces FunctionCall for types
+  | TTupleType { elements :: Array Type }
+  | TListType Type -- For `[Int]` becomes TListType (TIdentifier "Int")
+  | TIdentifier String -- For type names like "Int", "String" or type variables "a"
+  | TQualifiedIdentifier (Array String) -- For type names like "Maybe.Maybe"
+  | TParenthesized Type -- For ((Type))
 
 
--- ─────────────────────────────────────────────────────────────────────────────
---  Import items
--- ─────────────────────────────────────────────────────────────────────────────
+type AstIdentifier = String -- For now, qualified names are dot-separated strings
+
+data Module = Module
+  { name :: AstIdentifier -- This would be a qualified name as a string
+  }
 
 data ImportItem
-  = ImportPlain             String             -- log
-  | ImportAllConstructors   String             -- Foo(..)
-  | ImportConstructors      String (Array String) -- Foo(Bar, Baz)
+  = ImportValue AstIdentifier
+  | ImportType AstIdentifier (Maybe ImportSpecification)
 
+data ImportSpecification
+  = ImportAllConstructors
+  | ImportSpecificConstructors (Array AstIdentifier)
 
--- ─────────────────────────────────────────────────────────────────────────────
---  Declarations
--- ─────────────────────────────────────────────────────────────────────────────
+data ImportDeclaration = ImportDeclaration
+  { imodule :: AstIdentifier
+  , alias :: Maybe AstIdentifier
+  , items :: Maybe (Array ImportItem) -- Nothing means import all, Just [] means import ()
+  , hiding :: Boolean
+  }
 
-type TypeDeclaration =
-  { name          :: String
+data TypeSignature = TypeSignature
+  { name :: AstIdentifier
+  , typeVars :: Array AstIdentifier -- Implicitly quantified
+  , constraints :: Array Type -- Context
+  , stype :: Type
+  }
+
+data ForeignImport = ForeignImport
+  { foreignModule :: Maybe String -- String literal for foreign module name
+  , foreignFunction :: Maybe String -- String literal for foreign function name
+  , alias :: AstIdentifier
   , typeSignature :: TypeSignature
   }
 
-type TypeSignature =
-  { name        :: String
-  , typeVars    :: Array String
-  , constraints :: Array Constraint
-  , type        :: TypeExpr
+data DataConstructor = DataConstructor
+  { name :: AstIdentifier
+  , fields :: Array Type
   }
 
-type FunctionDeclaration =
-  { name          :: String
-  , parameters    :: Array Identifier
-  , body          :: Expression
-  , typeSignature :: Maybe TypeSignature
-  }
-
-type TypeClass =
-  { name      :: String
-  , typeVars  :: Array String
-  , methods   :: Array FunctionDeclaration
-  }
-
-type TypeAlias =
-  { name     :: String
-  , typeVars :: Array String
-  , type     :: TypeExpr
-  }
-
-type TypeClassInstance =
-  { className :: String
-  , type      :: TypeExpr
-  , methods   :: Array FunctionDeclaration
-  }
-
-type DataType =
-  { name         :: String
-  , typeVars     :: Array String
+data DataType = DataType
+  { name :: AstIdentifier
+  , typeVars :: Array AstIdentifier
   , constructors :: Array DataConstructor
   }
 
-type DataConstructor =
-  { name   :: String
-  , fields :: Array TypeExpr
+data TypeClass = TypeClass
+  { name :: AstIdentifier
+  , typeVars :: Array AstIdentifier
+  , superclasses :: Array Type -- Placeholder for parsed superclass constraints
+  , methods :: Array TypeSignature
   }
 
-type ImportDeclaration =
-  { module  :: Identifier
-  , alias   :: Maybe String
-  , items   :: Array ImportItem
-  , hiding  :: Boolean
+data TypeClassInstance = TypeClassInstance
+  { instanceName :: Maybe AstIdentifier -- For named instances
+  , className :: AstIdentifier
+  , ctype :: Type -- The type for which the instance is defined
+  , constraints :: Array Type -- Instance context
+  , methods :: Array FunctionDeclaration
   }
 
-type ForeignImport =
-  { module        :: String
-  , function      :: String
-  , alias         :: Maybe String
-  , typeSignature :: TypeSignature
+data TypeAlias = TypeAlias
+  { name :: AstIdentifier
+  , typeVars :: Array AstIdentifier
+  , aliasedType :: Type
   }
 
-
--- ─────────────────────────────────────────────────────────────────────────────
---  Expression forms
--- ─────────────────────────────────────────────────────────────────────────────
-
-type FunctionCall =
-  { function  :: Expression
-  , arguments :: Array Expression
+data FunctionDeclaration = FunctionDeclaration
+  { name :: AstIdentifier
+  , parameters :: Array Pattern
+  , body :: Expression
+  , typeSignature :: Maybe TypeSignature
   }
 
-type BinaryOp =
-  { op    :: String
-  , left  :: Expression
-  , right :: Expression
-  }
-
-type UnaryOp =
-  { op    :: String
-  , value :: Expression
-  }
-
-type IfExpression =
-  { condition   :: Expression
-  , thenBranch  :: Expression
-  , elseBranch  :: Expression
-  }
-
-type CaseExpression =
-  { expression :: Expression
-  , cases      :: Array CaseClause
-  }
-
-type CaseClause =
+data CaseClause = CaseClause
   { pattern :: Pattern
-  , body    :: Expression
+  , guard :: Maybe Expression
+  , body :: Expression
   }
 
-type LetBinding =
-  { bindings :: Array (KVPair Identifier Expression)
-  , body     :: Expression
-  }
-
-type DoBlock =
-  { expressions :: Array Expression
-  }
-
-type Lambda =
-  { parameters :: Array Identifier
-  , body       :: Expression
-  }
-
-type List =
-  { elements :: Array Expression
-  }
-
-type ListComprehension =
-  { expression :: Expression
-  , generators :: Array Generator
-  , guards     :: Array Expression
-  }
-
-type Generator =
-  { pattern    :: Pattern
+data Generator = Generator
+  { pattern :: Pattern
   , expression :: Expression
   }
 
-type Tuple =
-  { elements :: Array Expression
-  }
-
-type Identifier =
-  { name :: String
-  }
-
-type Literal =
-  { type  :: String
-  , value :: String
-  }
-
-type PrefixOperator =
-  { op         :: String
-  , expression :: Expression
-  }
+data DoStatement
+  = DoLet AstIdentifier Expression
+  | DoBind Pattern Expression -- Pattern, not just identifier
+  | DoExpr Expression
 
 
--- ─────────────────────────────────────────────────────────────────────────────
---  Types that live *inside* other type expressions
--- ─────────────────────────────────────────────────────────────────────────────
+data Decl
+  = DModule Module
+  | DImport ImportDeclaration
+  | DForeignImport ForeignImport
+  | DDataType DataType
+  | DTypeAlias TypeAlias
+  | DTypeClass TypeClass
+  | DTypeClassInstance TypeClassInstance
+  | DFunction FunctionDeclaration
+  | DTypeSignature TypeSignature
 
-type ForAllType =
-  { vars :: Array String
-  , type :: TypeExpr
-  }
 
-type RecordType =
-  { fields :: Array (KVPair String TypeExpr)
-  , row    :: RowTail
-  }
 
-type RecordPattern =
-  { fields :: Array (KVPair String Pattern)
-  }
-
-type RecordLiteral =
-  { fields :: Array (KVPair String Expression)
-  }
-
-type FaileMe = { x :: GottaFail }

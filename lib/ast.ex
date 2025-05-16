@@ -34,7 +34,12 @@ defmodule Nova.Compiler.Ast do
   end
 
   defmodule DataConstructor do
-    defstruct [:name, :fields]
+    defstruct [:name, :fields, record?: false]
+  end
+
+  defmodule DataField do
+    # e.g. %DataField{label: "name", type: %Ast.Identifier{name: "String"}}
+    defstruct [:label, :type]
   end
 
   # Represent each import item as

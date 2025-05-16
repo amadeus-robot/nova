@@ -282,10 +282,8 @@ defmodule Nova.Compiler.Parser do
     with {:ok, _, tokens} <- expect_keyword(tokens, "data"),
          {:ok, type_name, tokens} <- parse_identifier(tokens),
          {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens),
-         # <ΓöÇΓöÇ here
          tokens = skip_newlines(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "="),
-         # <ΓöÇΓöÇ and here
          tokens = skip_newlines(tokens),
          {:ok, constructors, tokens} <- parse_data_constructors(tokens) do
       {:ok,
@@ -303,19 +301,86 @@ defmodule Nova.Compiler.Parser do
     parse_separated(&parse_data_constructor/1, &expect_operator(&1, "|"), tokens)
   end
 
-  defp parse_data_constructor(tokens) do
-    with {:ok, constructor_name, tokens} <- parse_identifier(tokens),
-         # ⬇️  collect atomic types, not full applications
-         {:ok, fields, tokens} <- parse_many(&parse_type_atom/1, tokens) do
-      {:ok,
-       %Ast.DataConstructor{
-         name: constructor_name.name,
-         fields: fields
-       }, tokens}
-    else
-      {:error, reason} -> {:error, reason}
+  defp parse_data_constructor([%Token{column: base} | _] = tokens) do
+    with {:ok, ctor_name, tokens1} <- parse_identifier(tokens) do
+      tokens1 = skip_newlines(tokens1)
+
+      cond do
+        # ❶   Constructor { … }
+        match?([%Token{type: :delimiter, value: "{"} | _], tokens1) ->
+          with {:ok, fields, tokens2} <- parse_braced_record_fields(tokens1) do
+            {:ok, %Ast.DataConstructor{name: ctor_name.name, fields: fields, record?: true},
+             tokens2}
+          end
+
+        # ❷   Constructor LF  indented-fields
+        (case tokens1 do
+           [%Token{type: :newline} | rest] ->
+             rest = skip_newlines(rest)
+
+           [%Token{column: col} | _] when col > base ->
+             true
+
+           _ ->
+             false
+         end) ->
+          # cursor is still at tokens1 (newline or first field)
+          {_, after_newlines} = split_until_newline(tokens1)
+
+          with {:ok, fields, tokens2} <- collect_layout_record_fields(after_newlines, [], base) do
+            {:ok, %Ast.DataConstructor{name: ctor_name.name, fields: fields, record?: true},
+             tokens2}
+          end
+
+        # ❸   Ordinary positional constructor
+        true ->
+          with {:ok, field_types, tokens2} <- parse_many(&parse_type_atom/1, tokens1) do
+            {:ok, %Ast.DataConstructor{name: ctor_name.name, fields: field_types, record?: false},
+             tokens2}
+          end
+      end
     end
   end
+
+  # ───────────────────────────────────────────────────────────────
+  #  Record-constructor field:  label :: Type
+  # ───────────────────────────────────────────────────────────────
+  defp parse_record_constructor_field(tokens) do
+    with {:ok, label_ast, tokens} <- parse_identifier(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "::"),
+         tokens = skip_newlines(tokens),
+         {:ok, type_ast, tokens} <- parse_type(tokens) do
+      {:ok, %Ast.DataField{label: label_ast.name, type: type_ast}, tokens}
+    end
+  end
+
+  # Collect “label :: Type, …” between braces  { … }
+  defp parse_braced_record_fields([%Token{type: :delimiter, value: "{"} | rest]) do
+    with {:ok, fields, rest} <-
+           parse_separated(&parse_record_constructor_field/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, "}") do
+      {:ok, fields, rest}
+    end
+  end
+
+  defp parse_braced_record_fields(_), do: {:error, "Expected '{' for record constructor"}
+
+  # Layout-based (indent) list – stop when we dedent or hit “|”
+  defp collect_layout_record_fields([%Token{type: :newline} | rest], acc, base) do
+    rest = skip_newlines(rest)
+
+    case rest do
+      [%Token{column: col} | _] when col > base ->
+        with {:ok, field, rest} <- parse_record_constructor_field(rest) do
+          collect_layout_record_fields(rest, [field | acc], base)
+        end
+
+      _ ->
+        {:ok, Enum.reverse(acc), rest}
+    end
+  end
+
+  defp collect_layout_record_fields(tokens, acc, _base), do: {:ok, Enum.reverse(acc), tokens}
 
   # Skip superclass constraints in a `class` declaration – everything
   # up to (and including) the first "<=" operator is treated as

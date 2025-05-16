@@ -56,10 +56,7 @@ defmodule TH do
 
     source = File.read!("lib/ast.nv")
 
-    [head | rest] =
-      source |> split_sections()
-
-    tokens = Nova.Compiler.Tokenizer.tokenize(head)
+    tokens = Nova.Compiler.Tokenizer.tokenize(source)
 
     {:ok,
      %Nova.Compiler.Ast.Module{

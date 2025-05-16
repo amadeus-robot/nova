@@ -1,4 +1,12 @@
 defmodule TH1 do
+  def go0 do
+    source = File.read!("lib/ast.nv")
+    tokens = Nova.Compiler.Tokenizer.tokenize(source)
+    {:ok, all, rest} = Nova.Compiler.Parser.parse_declarations(tokens)
+    IO.inspect(rest)
+    all
+  end
+
   def go() do
     source = File.read!("lib/parser.nv")
     tokens = Nova.Compiler.Tokenizer.tokenize(source)
