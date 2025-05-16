@@ -686,6 +686,7 @@ defmodule Nova.Compiler.Parser do
   defp parse_simple_pattern(tokens) do
     parse_any(
       [
+        &parse_cons_pattern/1, 
         &parse_literal/1,
         &parse_identifier/1,
         &parse_tuple_pattern/1,
@@ -711,6 +712,7 @@ defmodule Nova.Compiler.Parser do
       [
         &parse_record_pattern/1,
         &parse_wildcard_pattern/1,
+&parse_cons_pattern/1, 
         &parse_constructor_pattern/1,
         &parse_tuple_pattern/1,
         &parse_list_pattern/1,
@@ -750,6 +752,24 @@ defmodule Nova.Compiler.Parser do
       {:error, _} -> {:error, "Expected constructor pattern"}
     end
   end
+
+  defp parse_cons_pattern(tokens) do
+    with {:ok, head, tokens} <- parse_simple_pattern(tokens),
+         # the ":" itself
+         {:ok, _, tokens} <- expect_colon(tokens),
+         {:ok, tail, tokens} <- parse_pattern(tokens) do
+      {:ok,
+       %Ast.FunctionCall{
+         function: %Ast.Identifier{name: ":"},
+         arguments: [head, tail]
+       }, tokens}
+    else
+      _ -> {:error, "Expected cons pattern"}
+    end
+  end
+
+  defp expect_colon([%Token{value: ":"} | rest]), do: {:ok, ":", rest}
+  defp expect_colon(_), do: {:error, "Expected ':'"}
 
   def parse_wildcard_pattern([%Token{type: :identifier, value: "_"} | rest]),
     do: {:ok, %Ast.Wildcard{}, rest}

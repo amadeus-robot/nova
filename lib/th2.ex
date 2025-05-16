@@ -6,8 +6,8 @@ defmodule TH2 do
   def go do
     s = """
     skipNewlines :: Tokens -> Tokens
-    skipNewlines ts = case uncons ts of
-        Just { head: tok, tail: rest } | tok.t_type == NewLine -> skipNewlines rest
+    skipNewlines ts = case ts of
+        tok : tail | tok.t_type == NewLine -> skipNewlines rest
         _ -> ts
     """
 
