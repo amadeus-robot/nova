@@ -77,6 +77,10 @@ defmodule Nova.Compiler.Ast do
     defstruct [:op, :value]
   end
 
+  defmodule Cons do
+    defstruct [:head, :tail]
+  end
+
   defmodule IfExpression do
     defstruct [:condition, :then_branch, :else_branch]
   end

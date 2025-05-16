@@ -686,7 +686,6 @@ defmodule Nova.Compiler.Parser do
   defp parse_simple_pattern(tokens) do
     parse_any(
       [
-        &parse_cons_pattern/1, 
         &parse_literal/1,
         &parse_identifier/1,
         &parse_tuple_pattern/1,
@@ -712,7 +711,7 @@ defmodule Nova.Compiler.Parser do
       [
         &parse_record_pattern/1,
         &parse_wildcard_pattern/1,
-&parse_cons_pattern/1, 
+        &parse_cons_pattern/1,
         &parse_constructor_pattern/1,
         &parse_tuple_pattern/1,
         &parse_list_pattern/1,

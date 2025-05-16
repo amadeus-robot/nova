@@ -7,7 +7,7 @@ defmodule TH2 do
     s = """
     skipNewlines :: Tokens -> Tokens
     skipNewlines ts = case ts of
-        tok : tail | tok.t_type == NewLine -> skipNewlines rest
+        tok : rest | tok.t_type == NewLine -> skipNewlines rest
         _ -> ts
     """
 
@@ -31,6 +31,12 @@ defmodule TH2 do
         # If you already wired the type-checker, uncomment:
         # {:ok, _env} = Nova.Compiler.TypeChecker.check_module(ast)
 
+        ast = %Nova.Compiler.Ast.Module{
+          name: "Demo.Simple",
+          declarations: ast
+        }
+
+        IO.inspect(ast)
         elixir_code = Nova.Compiler.CodeGen.compile(ast)
 
         IO.puts(

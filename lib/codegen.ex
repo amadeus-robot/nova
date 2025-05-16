@@ -52,6 +52,29 @@ defmodule Nova.Compiler.CodeGen do
   # ─────────────────────────────────────────────────────────────
   # Declarations
   # ─────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────────────────────
+  # Records  (type alias  Foo = { a :: Int, b :: String })
+  # ─────────────────────────────────────────────────────────────
+  defp compile_decl(%Ast.TypeAlias{
+         name: rec_name,
+         # ignore polymorphic vars for now
+         type_vars: [],
+         type: %Ast.RecordType{fields: flds}
+       }) do
+    mod_name = to_elixir_modname(rec_name)
+
+    field_atoms =
+      flds
+      |> Enum.map(fn {label, _type} -> ":" <> sanitize_name(label) end)
+      |> Enum.join(", ")
+
+    """
+    defmodule #{mod_name} do
+      defstruct [#{field_atoms}]
+    end
+    """
+    |> String.trim()
+  end
 
   defp compile_decl(
          %Ast.ImportDeclaration{
@@ -162,13 +185,11 @@ defmodule Nova.Compiler.CodeGen do
     |> String.trim()
   end
 
-  # Case expression
   defp compile_expr(%Ast.CaseExpression{expression: e, cases: cs}) do
     clauses =
       cs
-      |> Enum.map(fn %Ast.CaseClause{pattern: p, body: b} ->
-        "#{compile_pattern(p)} -> #{compile_expr(b)}"
-      end)
+      # ← use the helper
+      |> Enum.map(&compile_case_clause/1)
       |> Enum.join("\n")
 
     """
@@ -227,6 +248,7 @@ defmodule Nova.Compiler.CodeGen do
   # ─────────────────────────────────────────────────────────────
   defp compile_pattern(%Ast.Identifier{name: n}), do: sanitize_name(n)
   defp compile_pattern(%Ast.Literal{} = lit), do: compile_expr(lit)
+  defp compile_pattern(%Nova.Compiler.Ast.Wildcard{}), do: "_"
 
   defp compile_pattern(%Ast.Tuple{elements: es}),
     do: "{" <> (es |> Enum.map(&compile_pattern/1) |> Enum.join(", ")) <> "}"
@@ -234,8 +256,24 @@ defmodule Nova.Compiler.CodeGen do
   defp compile_pattern(%Ast.List{elements: es}),
     do: "[" <> (es |> Enum.map(&compile_pattern/1) |> Enum.join(", ")) <> "]"
 
+  defp compile_pattern(%Ast.FunctionCall{
+         function: %Nova.Compiler.Ast.Identifier{name: ":"},
+         arguments: [a, b]
+       }),
+       do: "[ #{compile_pattern(a)} | #{compile_pattern(b)} ]"
+
   defp compile_pattern(%Ast.FunctionCall{function: f, arguments: a}),
     do: compile_expr(%Ast.FunctionCall{function: f, arguments: a})
+
+  # NEW helper – compiles one case-clause, including an optional guard
+  # ─────────────────────────────────────────────────────────────
+  defp compile_case_clause(%Ast.CaseClause{pattern: p, guard: nil, body: b}) do
+    "#{compile_pattern(p)} -> #{compile_expr(b)}"
+  end
+
+  defp compile_case_clause(%Ast.CaseClause{pattern: p, guard: g, body: b}) do
+    "#{compile_pattern(p)} when #{compile_expr(g)} -> #{compile_expr(b)}"
+  end
 
   # ─────────────────────────────────────────────────────────────
   # Helpers
