@@ -63,7 +63,7 @@ defmodule Nova.Compiler.Parser do
           {:error, _} ->
             parse_any(
               [
-                &parse_module/1,
+                &parse_module_header/1,
                 &parse_import/1,
                 &parse_foreign_import_simple/1,
                 &parse_foreign_import/1,
@@ -83,6 +83,15 @@ defmodule Nova.Compiler.Parser do
   #  Module parsing
   # ------------------------------------------------------------
   def parse_module(tokens) do
+    with {:ok, module_ast, tokens} <- parse_module_header(tokens),
+         {:ok, decls, rest} <- parse_declarations(tokens),
+         :ok <- ensure_consumed(rest) do
+      {:ok, %{module_ast | declarations: decls}, []}
+    end
+  end
+
+  # Internal helper used when `module` appears as a declaration
+  defp parse_module_header(tokens) do
     tokens = drop_newlines(tokens)
 
     with {:ok, _, tokens} <- expect_keyword(tokens, "module"),
