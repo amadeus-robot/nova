@@ -738,7 +738,11 @@ defmodule Nova.Compiler.Parser do
     with {:ok, name, tokens} <- parse_identifier(tokens),
          {:ok, parameters, tokens} <- parse_function_parameters(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "="),
-         {:ok, body, tokens} <- parse_expression(tokens) do
+         # remember top-level column for layout checks
+         [%Token{column: indent} | _] = tokens,
+         {:ok, raw_body, tokens} <- parse_expression(tokens),
+         # ← NEW: look for an optional where-clause
+         {:ok, body, tokens} <- maybe_parse_where(tokens, indent, raw_body) do
       {:ok,
        %Ast.FunctionDeclaration{
          name: name.name,
@@ -777,6 +781,44 @@ defmodule Nova.Compiler.Parser do
       ],
       tokens
     )
+  end
+
+  defp maybe_parse_where(tokens, outer_indent, body) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{type: :keyword, value: "where"} | rest0] ->
+        rest0 = skip_newlines(rest0)
+
+        # first binding must be further indented
+        [%Token{column: col_first} | _] = rest0
+        true = col_first > outer_indent
+
+        # gather bindings while we stay indented > outer_indent
+        {:ok, bindings, rest} = collect_where_bindings(rest0, outer_indent, [])
+        {:ok, %Ast.LetBinding{bindings: bindings, body: body}, rest}
+
+      _ ->
+        {:ok, body, tokens}
+    end
+  end
+
+  defp collect_where_bindings(tokens, outer_indent, acc) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{column: col} | _] when col > outer_indent ->
+        case parse_binding(tokens) do
+          {:ok, bind, rest} ->
+            collect_where_bindings(rest, outer_indent, [bind | acc])
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      _ ->
+        {:ok, Enum.reverse(acc), tokens}
+    end
   end
 
   # Pattern parsing for other contexts like case clauses
@@ -933,12 +975,20 @@ defmodule Nova.Compiler.Parser do
   def parse_binding(tokens) do
     tokens = skip_newlines(tokens)
 
-    with {:ok, pat, tokens} <- parse_pattern(tokens),
-         {:ok, _, tokens} <- expect_operator(tokens, "="),
-         {:ok, rhs, tokens} <- parse_expression(tokens) do
-      {:ok, {pat, rhs}, tokens}
-    else
-      {:error, reason} -> {:error, reason}
+    # ──  try “name params … = rhs” first ──────────────────────
+    case parse_function_declaration(tokens) do
+      {:ok, %Ast.FunctionDeclaration{} = fun, rest} ->
+        # desugar into a lambda so the RHS is still an *expression*
+        lambda = %Ast.Lambda{parameters: fun.parameters, body: fun.body}
+        {:ok, {%Ast.Identifier{name: fun.name}, lambda}, rest}
+
+      _ ->
+        # ── fall back to ordinary pattern = rhs ───────────────
+        with {:ok, pat, tokens} <- parse_pattern(tokens),
+             {:ok, _, tokens} <- expect_operator(tokens, "="),
+             {:ok, rhs, tokens} <- parse_expression(tokens) do
+          {:ok, {pat, rhs}, tokens}
+        end
     end
   end
 

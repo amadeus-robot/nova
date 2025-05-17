@@ -17,6 +17,13 @@ defmodule MyAPI.Application do
       }
     ]
 
+    children =
+      if Mix.env() == :test do
+        []
+      else
+        children
+      end
+
     Supervisor.start_link(children,
       strategy: :one_for_one,
       name: MyAPI.Supervisor
