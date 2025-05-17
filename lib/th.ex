@@ -67,11 +67,11 @@ defmodule TH do
     IO.inspect(namespace)
     env = %{Nova.Compiler.Types.Env.empty() | registry_layer: layer}
 
-    rest
-    |> Enum.reduce(env, fn s, env ->
-      IO.puts("# adding chunk")
-      IO.puts(s)
-      process_chunk(s, :"#{namespace}", layer, env)
-    end)
+    # rest
+    # |> Enum.reduce(env, fn s, env ->
+    #  IO.puts("# adding chunk")
+    #  IO.puts(s)
+    #  process_chunk(s, :"#{namespace}", layer, env)
+    # end)
   end
 end

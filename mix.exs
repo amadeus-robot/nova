@@ -14,7 +14,8 @@ defmodule Nova3.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger]
+      extra_applications: [:logger],
+      mod: {MyAPI.Application, :start}
     ]
   end
 
@@ -23,9 +24,12 @@ defmodule Nova3.MixProject do
     [
       {:beaver, "~> 0.4"},
       {:llvm_config, "~> 0.1"},
-      {:sweet_xml, "~> 0.7"}
+      {:sweet_xml, "~> 0.7.5"},
       {:rocksdb, git: "https://github.com/xenomorphtech/erlang-rocksdb.git", override: true},
-      {:mnesia_kv, git: "https://github.com/xenomorphtech/mnesia_kv.git"}
+      {:mnesia_kv, git: "https://github.com/xenomorphtech/mnesia_kv.git"},
+      {:plug, "~> 1.15"},
+      {:bandit, "~> 1.4"},
+      {:cors_plug, "~> 3.0"}
     ]
   end
 end

@@ -1,4 +1,3 @@
-```
 <implementation>
  <name>parse_identifier</name>
  <code>
@@ -113,4 +112,3 @@ parse_identifier tokens_input =
   </test>
  </tests>
 </implementation>
-```
