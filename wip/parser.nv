@@ -1,0 +1,415 @@
+module Nova.Compiler.Parser where
+
+import Prelude
+
+import Nova.Compiler.Ast as Ast
+import Nova.Compiler.Tokenizer (Token, TokenType(..), skipNewlines) -- Assuming skipNewlines is exported and works as Elixir's
+
+-- Generic parser type alias
+type Parser a = Array Token -> Either String (Tuple a (Array Token))
+type Tokens = Array Token
+type ParseError = String
+
+-- Helper for unimplemented parts
+todo :: forall a. String -> a
+todo msg = unsafeCrashWith ("TODO: " <> msg)
+
+-------------------------------------------------------------------------------
+-- Newline‑handling helpers (assuming skipNewlines is from Tokenizer)
+-------------------------------------------------------------------------------
+skipNewlines        :: Tokens -> Tokens -- Provided by Tokenizer
+
+dropNewlines        :: Tokens -> Tokens
+dropNewlines = todo "dropNewlines unsupported yet" -- Elixir: same as skipNewlines
+
+stripNewlines       :: Tokens -> Tokens
+stripNewlines tokens = filter (\t -> t.tag /= Newline) tokens
+
+ensureConsumed      :: Tokens -> Either ParseError Unit
+ensureConsumed tokens =
+  case skipNewlines tokens of
+    [] -> Right unit
+    (t : _) -> Left $ "Unexpected tokens after successful parse: " <> show t.tag <> ":" <> show t.value <> " at line " <> show t.line <> ", col " <> show t.column
+
+-------------------------------------------------------------------------------
+-- Top‑level declaration batch
+-------------------------------------------------------------------------------
+parseDeclarations   :: Tokens -> Either ParseError { declarations :: Array Ast.Declaration , rest :: Tokens }
+parseDeclarations = todo "parseDeclarations unsupported yet"
+
+parseDeclaration    :: Parser Ast.Declaration
+parseDeclaration = todo "parseDeclaration unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Module & import declarations
+-------------------------------------------------------------------------------
+parseModule                 :: Parser Ast.Module
+parseModule = todo "parseModule unsupported yet"
+
+parseImport                 :: Parser Ast.ImportDeclaration
+parseImport = todo "parseImport unsupported yet"
+
+parseImportAlias            :: Tokens -> Either ParseError ( Tuple (Maybe String) Tokens )
+parseImportAlias = todo "parseImportAlias unsupported yet"
+
+parseImportSelectors        :: Tokens -> Either ParseError ( Tuple (Array Ast.ImportItem) Boolean Tokens )
+parseImportSelectors = todo "parseImportSelectors unsupported yet"
+
+parseParenImportList        :: Tokens -> Either ParseError ( Tuple (Array Ast.ImportItem) Tokens )
+parseParenImportList = todo "parseParenImportList unsupported yet"
+
+parseImportItem             :: Parser Ast.ImportItem
+parseImportItem = todo "parseImportItem unsupported yet"
+
+parseConstructors           :: Tokens -> Either ParseError ( Tuple Ast.ImportItem Tokens )
+parseConstructors = todo "parseConstructors unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Foreign imports
+-------------------------------------------------------------------------------
+parseForeignImportSimple    :: Parser Ast.ForeignImport
+parseForeignImportSimple = todo "parseForeignImportSimple unsupported yet"
+
+parseForeignImport          :: Parser Ast.ForeignImport
+parseForeignImport = todo "parseForeignImport unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Record patterns & fields
+-------------------------------------------------------------------------------
+parseRecordPattern          :: Parser Ast.RecordPattern
+parseRecordPattern = todo "parseRecordPattern unsupported yet"
+
+parseRecordFieldPattern     :: Parser (Tuple String Ast.Pattern)
+parseRecordFieldPattern = todo "parseRecordFieldPattern unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Data/type declarations
+-------------------------------------------------------------------------------
+parseDataDeclaration        :: Parser Ast.DataType
+parseDataDeclaration = todo "parseDataDeclaration unsupported yet"
+
+parseDataConstructors       :: Parser (Array Ast.DataConstructor)
+parseDataConstructors = todo "parseDataConstructors unsupported yet"
+
+parseDataConstructor        :: Parser Ast.DataConstructor
+parseDataConstructor = todo "parseDataConstructor unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Type classes & instances
+-------------------------------------------------------------------------------
+parseTypeClass              :: Parser Ast.TypeClass
+parseTypeClass = todo "parseTypeClass unsupported yet"
+
+parseTypeClassInstance      :: Parser Ast.TypeClassInstance
+parseTypeClassInstance = todo "parseTypeClassInstance unsupported yet"
+
+skipSuperclassConstraints   :: Tokens -> Either ParseError ( Tuple Tokens Tokens )
+skipSuperclassConstraints = todo "skipSuperclassConstraints unsupported yet"
+
+dropInstanceConstraints     :: Tokens -> Tokens
+dropInstanceConstraints = todo "dropInstanceConstraints unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Functions with optional type signatures
+-------------------------------------------------------------------------------
+splitTypeAndRest            :: Tokens -> String -> (Tuple Tokens Tokens)
+splitTypeAndRest = todo "splitTypeAndRest unsupported yet"
+
+parseFunctionWithTypeSignature :: Parser Ast.FunctionDeclaration
+parseFunctionWithTypeSignature = todo "parseFunctionWithTypeSignature unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Types & type signatures
+-------------------------------------------------------------------------------
+parseTypeSignature          :: Parser Ast.TypeSignature
+parseTypeSignature = todo "parseTypeSignature unsupported yet"
+
+parseType                   :: Parser Ast.TypeExpr
+parseType = todo "parseType unsupported yet"
+
+parseForAllType             :: Parser Ast.ForAllType
+parseForAllType = todo "parseForAllType unsupported yet"
+
+parseTypeAlias              :: Parser Ast.TypeAlias
+parseTypeAlias = todo "parseTypeAlias unsupported yet"
+
+parseFunctionType           :: Parser Ast.TypeExpr
+parseFunctionType = todo "parseFunctionType unsupported yet"
+
+parseRecordType             :: Parser Ast.RecordType
+parseRecordType = todo "parseRecordType unsupported yet"
+
+parseRecordField            :: Parser (Tuple String Ast.TypeExpr)
+parseRecordField = todo "parseRecordField unsupported yet"
+
+parseTypeTerm               :: Parser Ast.TypeExpr
+parseTypeTerm = todo "parseTypeTerm unsupported yet"
+
+parseListType               :: Parser Ast.TypeExpr
+parseListType = todo "parseListType unsupported yet"
+
+parseTupleType              :: Parser Ast.TypeExpr
+parseTupleType = todo "parseTupleType unsupported yet"
+
+parseBasicType              :: Parser Ast.TypeExpr
+parseBasicType = todo "parseBasicType unsupported yet"
+
+parseBasicTypeFallback      :: Parser Ast.TypeExpr
+parseBasicTypeFallback = todo "parseBasicTypeFallback unsupported yet"
+
+parseTypeAtom               :: Parser Ast.TypeExpr
+parseTypeAtom = todo "parseTypeAtom unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Function declarations (no signature)
+-------------------------------------------------------------------------------
+parseFunctionDeclaration    :: Parser Ast.FunctionDeclaration
+parseFunctionDeclaration = todo "parseFunctionDeclaration unsupported yet"
+
+parseFunctionParameters     :: Parser (Array Ast.Pattern)
+parseFunctionParameters = todo "parseFunctionParameters unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Patterns (simple & general)
+-------------------------------------------------------------------------------
+parseSimplePattern          :: Parser Ast.Pattern
+parseSimplePattern = todo "parseSimplePattern unsupported yet"
+
+parsePattern                :: Parser Ast.Pattern
+parsePattern = todo "parsePattern unsupported yet"
+
+parseConstructorPattern     :: Parser Ast.Pattern
+parseConstructorPattern = todo "parseConstructorPattern unsupported yet"
+
+parseTuplePattern           :: Parser Ast.Pattern
+parseTuplePattern = todo "parseTuplePattern unsupported yet"
+
+parseListPattern            :: Parser Ast.Pattern
+parseListPattern = todo "parseListPattern unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Lambda & expression entry point
+-------------------------------------------------------------------------------
+parseLambda                 :: Parser Ast.Expression
+parseLambda = todo "parseLambda unsupported yet"
+
+parseExpression             :: Parser Ast.Expression
+parseExpression = todo "parseExpression unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Let‑bindings, if/else, case, do
+-------------------------------------------------------------------------------
+parseLetExpression          :: Parser Ast.Expression
+parseLetExpression = todo "parseLetExpression unsupported yet"
+
+parseBinding                :: Parser (Tuple Ast.Pattern Ast.Expression)
+parseBinding = todo "parseBinding unsupported yet"
+
+parseIfExpression           :: Parser Ast.Expression
+parseIfExpression = todo "parseIfExpression unsupported yet"
+
+parseCaseExpression         :: Parser Ast.Expression
+parseCaseExpression = todo "parseCaseExpression unsupported yet"
+
+parseCaseClauses            :: Tokens -> Ast.Expression -> Array Ast.CaseClause -> Either ParseError ( Tuple Ast.Expression Tokens )
+parseCaseClauses = todo "parseCaseClauses unsupported yet"
+
+parseCaseClause             :: Parser Ast.CaseClause
+parseCaseClause = todo "parseCaseClause unsupported yet"
+
+parseDoBlock                :: Parser Ast.DoBlock
+parseDoBlock = todo "parseDoBlock unsupported yet"
+
+parseDoExpression           :: Parser Ast.Expression
+parseDoExpression = todo "parseDoExpression unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Binary‑expression precedence ladder
+-------------------------------------------------------------------------------
+parseBinaryExpression       :: Parser Ast.Expression
+parseBinaryExpression = todo "parseBinaryExpression unsupported yet"
+
+parseDollarExpression       :: Parser Ast.Expression
+parseDollarExpression = todo "parseDollarExpression unsupported yet"
+
+parseLogicalExpression      :: Parser Ast.Expression
+parseLogicalExpression = todo "parseLogicalExpression unsupported yet"
+
+parseComparisonExpression   :: Parser Ast.Expression
+parseComparisonExpression = todo "parseComparisonExpression unsupported yet"
+
+parseAdditiveExpression     :: Parser Ast.Expression
+parseAdditiveExpression = todo "parseAdditiveExpression unsupported yet"
+
+parseMultiplicativeExpression :: Parser Ast.Expression
+parseMultiplicativeExpression = todo "parseMultiplicativeExpression unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Function application helpers
+-------------------------------------------------------------------------------
+parseApplication            :: Parser Ast.Expression
+parseApplication = todo "parseApplication unsupported yet"
+
+collectApplicationArgs      :: Tokens -> Array Ast.Expression -> Int -> ( Tuple (Array Ast.Expression) Tokens )
+collectApplicationArgs = todo "collectApplicationArgs unsupported yet"
+
+parseTerm                   :: Parser Ast.Expression
+parseTerm = todo "parseTerm unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Literals & compound terms
+-------------------------------------------------------------------------------
+parseListLiteral            :: Parser Ast.List
+parseListLiteral = todo "parseListLiteral unsupported yet"
+
+parseListComprehension      :: Parser Ast.ListComprehension
+parseListComprehension = todo "parseListComprehension unsupported yet"
+
+parseGenerator              :: Parser Ast.Generator
+parseGenerator = todo "parseGenerator unsupported yet"
+
+parseTupleLiteral           :: Parser Ast.Tuple
+parseTupleLiteral = todo "parseTupleLiteral unsupported yet"
+
+parseLiteral                :: Parser Ast.Literal
+parseLiteral = todo "parseLiteral unsupported yet"
+
+parseStringLiteral          :: Tokens -> Either ParseError ( Tuple String Tokens )
+parseStringLiteral = todo "parseStringLiteral unsupported yet"
+
+-------------------------------------------------------------------------------
+-- Low‑level token helpers
+-------------------------------------------------------------------------------
+
+-- | Parses an identifier or a keyword as a label.
+-- | Elixir ref: `parse_label`
+parseLabel :: Parser Ast.Identifier
+parseLabel input =
+  let tokens = skipNewlines input
+  in case uncons tokens of
+    Just { head: t, tail: rest } ->
+      case t.tag, t.value of
+        Identifier, Just name -> Right (Tuple (Ast.Identifier { name }) rest)
+        Keyword, Just name    -> Right (Tuple (Ast.Identifier { name }) rest)
+        _, _                  -> Left "Expected label (identifier or keyword)"
+    Nothing -> Left "Expected label, found EOF"
+
+-- | Parses an identifier token.
+-- | Elixir ref: `parse_identifier`
+parseIdentifier :: Parser Ast.Identifier
+parseIdentifier input =
+  let tokens = skipNewlines input
+  in case uncons tokens of
+    Just { head: t, tail: rest } ->
+      case t.tag, t.value of
+        Identifier, Just name -> Right (Tuple (Ast.Identifier { name }) rest)
+        _, _                  -> Left $ "Expected identifier, got: " <> show t.tag <> maybe "" (":" <> t.value)
+    Nothing -> Left "Expected identifier, found EOF"
+
+-- | Parses a qualified identifier (e.g., Module.Name.value).
+-- | Elixir ref: `parse_qualified_identifier`
+parseQualifiedIdentifier :: Parser Ast.Identifier
+parseQualifiedIdentifier tokens =
+  let
+    dotParser :: Tokens -> Either ParseError (Tuple String Tokens)
+    dotParser = expectOperator "."
+  in
+    case parseSeparated parseIdentifier dotParser tokens of
+      Right (Tuple parts rest) ->
+        if null parts then Left "Expected qualified identifier, got empty parts"
+        else
+          let names = map (\(Ast.Identifier id) -> id.name) parts
+          in Right (Tuple (Ast.Identifier { name: joinWith "." names }) rest)
+      Left err -> Left ("Failed to parse qualified identifier: " <> err)
+
+-- | Tries a list of parsers in order, returns the result of the first one that succeeds.
+-- | Elixir ref: `parse_any`
+parseAny :: forall a. Array (Parser a) -> Parser a
+parseAny parsers inputTokens =
+  foldl go (Left "No parser succeeded") parsers
+  where
+  go :: Either ParseError (Tuple a Tokens) -> Parser a -> Either ParseError (Tuple a Tokens)
+  go (Right res) _ = Right res -- Already succeeded
+  go (Left _) p    = p inputTokens
+
+-- | Parses zero or more occurrences of `p`. This parser never fails.
+-- | It accumulates results and returns the tokens that caused `p` to fail for the first time.
+-- | Elixir ref: `parse_many`
+parseMany :: forall a. Parser a -> Tokens -> Either ParseError (Tuple (Array a) Tokens)
+parseMany p initialTokens =
+  let
+    loop :: Tokens -> Array a -> Tuple (Array a) Tokens
+    loop currentTokens acc =
+      case p currentTokens of
+        Right (Tuple result remainingTokens) -> loop remainingTokens (snoc acc result)
+        Left _ -> Tuple acc currentTokens -- On failure, return accumulated and current tokens
+  in Right (loop initialTokens [])
+
+-- | Parses one or more occurrences of `p`, separated by `sep`.
+-- | Fails if the first `p` fails, or if `sep` is followed by a failing `p`.
+-- | Elixir ref: `parse_separated`
+parseSeparated :: forall a b. Parser a -> (Tokens -> Either ParseError (Tuple b Tokens)) -> Tokens -> Either ParseError (Tuple (Array a) Tokens)
+parseSeparated p sep initialTokens =
+  case p initialTokens of
+    Left err -> Left err
+    Right (Tuple firstItem tokensAfterFirst) ->
+      let
+        loop :: Tokens -> Array a -> Either ParseError (Tuple (Array a) Tokens)
+        loop currentTokens acc =
+          case sep currentTokens of
+            Left _ -> Right (Tuple acc currentTokens) -- No more separators, success
+            Right (Tuple _ tokensAfterSep) ->
+              case p tokensAfterSep of
+                Left _ -> Left "Expected item after separator" -- Elixir's message
+                Right (Tuple nextItem tokensAfterItem) ->
+                  loop tokensAfterItem (snoc acc nextItem)
+      in loop tokensAfterFirst [firstItem]
+
+
+-- | Expects a specific keyword.
+-- | Elixir ref: `expect_keyword`
+expectKeyword :: String -> Tokens -> Either ParseError (Tuple String Tokens)
+expectKeyword expected input =
+  let tokens = skipNewlines input
+  in case uncons tokens of
+    Just { head: t, tail: rest } ->
+      if t.tag == Keyword && t.value == Just expected
+        then Right (Tuple expected rest)
+        else Left ("Expected keyword '" <> expected <> "', got: " <> show t.tag <> maybe "" (":" <> t.value))
+    Nothing -> Left ("Expected keyword '" <> expected <> "', found EOF")
+
+-- | Expects a specific operator.
+-- | Elixir ref: `expect_operator`
+expectOperator :: String -> Tokens -> Either ParseError (Tuple String Tokens)
+expectOperator expected input =
+  let tokens = skipNewlines input
+  in case uncons tokens of
+    Just { head: t, tail: rest } ->
+      if t.tag == Operator && t.value == Just expected
+        then Right (Tuple expected rest)
+        else Left ("Expected operator '" <> expected <> "', got: " <> show t.tag <> maybe "" (":" <>) t.value)
+    Nothing -> Left ("Expected operator '" <> expected <> "', found EOF")
+
+-- | Expects a specific delimiter.
+-- | Elixir ref: `expect_delimiter`
+expectDelimiter :: String -> Tokens -> Either ParseError (Tuple String Tokens)
+expectDelimiter expected input =
+  let tokens = skipNewlines input
+  in case uncons tokens of
+    Just { head: t, tail: rest } ->
+      if t.tag == Delimiter && t.value == Just expected
+        then Right (Tuple expected rest)
+        else Left ("Expected delimiter '" <> expected <> "', got: " <> show t.tag <> maybe "" (":" <>) t.value)
+    Nothing -> Left ("Expected delimiter '" <> expected <> "', found EOF")
+
+-- | Skips tokens until (and including) an "end" keyword.
+-- | If "end" is not found, returns the original tokens. (Elixir returns original tokens if not found)
+-- | Elixir ref: `skip_until_end`
+skipUntilEnd :: Tokens -> Tokens
+skipUntilEnd tokens =
+  case findIndex isEndKeyword tokens of
+    Just idx -> drop (idx + 1) tokens
+    Nothing -> tokens
+  where
+  isEndKeyword :: Token -> Boolean
+  isEndKeyword t = t.tag == Keyword && t.value == Just "end"
