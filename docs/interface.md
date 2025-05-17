@@ -11,6 +11,10 @@ Nova is engineered for *live* editing and incremental type‑checking.  Developi
 
 * **Fast imports** – no disk IO in the hot path.
 * **Open‑ended namespaces** – modules can grow new declarations at any time.
+  The `module` keyword is kept as a declaration purely for convenience.
+  Internally, the compiler works with blocks of declarations that are inserted
+  into the namespace pointed out by `module` (or the implicit namespace).
+  In the future this may become an explicit `namespace` keyword.
 * **Isolation of un‑committed edits** – a work‑in‑progress file should not break the public view until explicitly promoted.
 * **Hot reload** – evaluate expressions immediately after a change without restarting the VM.
 
