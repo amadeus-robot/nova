@@ -84,6 +84,9 @@ defmodule WorkFlow.Step0 do
   def go do
     fc = File.read!("wip/01_parser.meta")
     all = FunctionParser.parse_text(fc)
-    FuncSorter.sort(all)
+    sorted = FuncSorter.sort(all)
+    File.write!("wip/parser_auto_tmp.json", JSON.encode!(sorted))
+    # call for a batch of implementations
+    sorted
   end
 end

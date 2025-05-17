@@ -808,21 +808,28 @@ defmodule Nova.Compiler.Parser do
     )
   end
 
+  defp capital?(<<c, _::binary>>) when c in ?A..?Z, do: true
+  defp capital?(_), do: false
+
   defp parse_constructor_pattern(tokens) do
-    with {:ok, constructor, tokens} <- parse_identifier(tokens),
-         {:ok, args, tokens} <- parse_many(&parse_pattern/1, tokens) do
-      if args == [] do
-        {:ok, %Ast.Identifier{name: constructor.name}, tokens}
-      else
-        {:ok,
-         %Ast.FunctionCall{
-           # <- wrap
-           function: %Ast.Identifier{name: constructor.name},
-           arguments: args
-         }, tokens}
+    with {:ok, ctor, rest} <- parse_identifier(tokens),
+         # <── NEW line
+         true <- capital?(ctor.name),
+         {:ok, args, rest} <- parse_many(&parse_pattern/1, rest) do
+      case args do
+        [] ->
+          {:ok, %Ast.Identifier{name: ctor.name}, rest}
+
+        _ ->
+          {:ok,
+           %Ast.FunctionCall{
+             function: %Ast.Identifier{name: ctor.name},
+             arguments: args
+           }, rest}
       end
     else
-      {:error, _} -> {:error, "Expected constructor pattern"}
+      # fall-through
+      _ -> {:error, "Expected constructor pattern"}
     end
   end
 
@@ -863,22 +870,23 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_list_pattern(tokens) do
-    case tokens do
-      [%Token{type: :delimiter, value: "["} | rest] ->
-        with {:ok, elements, rest} <-
-               parse_separated(&parse_pattern/1, &expect_delimiter(&1, ","), rest),
-             {:ok, _, rest} <- expect_delimiter(rest, "]") do
-          {:ok, %Ast.List{elements: elements}, rest}
-        end
+  defp parse_list_pattern([
+         %Token{type: :delimiter, value: "["},
+         %Token{type: :delimiter, value: "]"} | rest
+       ]) do
+    {:ok, %Ast.List{elements: []}, rest}
+  end
 
-      [%Token{type: :delimiter, value: "["} | rest] ->
-        {:ok, %Ast.List{elements: []}, rest}
-
-      _ ->
-        {:error, "Expected list pattern"}
+  # ── pattern: [p1, p2, …] ────────────────────────────────────────
+  defp parse_list_pattern([%Token{type: :delimiter, value: "["} | rest]) do
+    with {:ok, elements, rest} <-
+           parse_separated(&parse_pattern/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, "]") do
+      {:ok, %Ast.List{elements: elements}, rest}
     end
   end
+
+  defp parse_list_pattern(_), do: {:error, "Expected list pattern"}
 
   # Lambda expression parsing
   defp parse_lambda(tokens) do
@@ -1200,7 +1208,7 @@ defmodule Nova.Compiler.Parser do
 
       case tokens do
         [%Token{type: :operator, value: op} | rest]
-        when op in ["==", "!=", "<", "<=", ">", ">="] ->
+        when op in ["==", "!=", "/=", "<", "<=", ">", ">="] ->
           rest = skip_newlines(rest)
 
           with {:ok, right, rest} <- parse_comparison_expression(rest) do
@@ -1349,19 +1357,23 @@ defmodule Nova.Compiler.Parser do
     )
   end
 
-  defp parse_list_literal(tokens) do
-    case tokens do
-      [%Token{type: :delimiter, value: "["} | rest] ->
-        with {:ok, elements, rest} <-
-               parse_separated(&parse_expression/1, &expect_delimiter(&1, ","), rest),
-             {:ok, _, rest} <- expect_delimiter(rest, "]") do
-          {:ok, %Ast.List{elements: elements}, rest}
-        end
+  # ── expressions: [] literal ─────────────────────────────────────
+  defp parse_list_literal([
+         %Token{type: :delimiter, value: "["},
+         %Token{type: :delimiter, value: "]"} | rest
+       ]) do
+    {:ok, %Ast.List{elements: []}, rest}
+  end
 
-      _ ->
-        {:error, "Expected list literal"}
+  defp parse_list_literal([%Token{type: :delimiter, value: "["} | rest]) do
+    with {:ok, elements, rest} <-
+           parse_separated(&parse_expression/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, "]") do
+      {:ok, %Ast.List{elements: elements}, rest}
     end
   end
+
+  defp parse_list_literal(_), do: {:error, "Expected list literal"}
 
   defp parse_list_comprehension(tokens) do
     case tokens do

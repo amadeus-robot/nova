@@ -26,14 +26,19 @@ defmodule MyAPI.Router do
   )
 
   def get_tasks do
-    JSON.encode!([
-      %{
-        uid: "task-1-1-1",
-        title: "Schema Design",
-        content: "Design new database schema",
-        children: [],
-        status: "Done"
-      }
-    ])
+    fc = WorkFlow.Step0.go()
+
+    tc =
+      Enum.map(fc, fn x ->
+        %{
+          uid: x.name,
+          title: x.name,
+          content: x.description,
+          children: [],
+          status: "In Progress"
+        }
+      end)
+
+    JSON.encode!(tc)
   end
 end

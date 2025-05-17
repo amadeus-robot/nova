@@ -5,7 +5,7 @@ defmodule Nova.Compiler.Tokenizer do
 
   @keywords ~w(foreign module where import data type class instance let in if then else case of do)
   @operators ~w(
-  == != <= >= -> <- :: ++ ++= >>= >> << && || 
+  == /= != <= >= -> <- :: ++ ++= >>= >> << && || 
  <>  
   + - * / < > = $
   \`
@@ -45,12 +45,14 @@ defmodule Nova.Compiler.Tokenizer do
   # end
 
   defp tokenize("--" <> rest, acc, line, column, pos) do
+    token = %Token{type: :newline, value: "\n", line: line, column: column, pos: pos}
+
     {rest_after_nl, new_line, new_column, new_pos} =
       rest
       |> consume_until_newline(line, column + 2, pos + 2)
 
     # Start tokenising again *after* the newline
-    tokenize(rest_after_nl, acc, new_line, new_column, new_pos)
+    tokenize(rest_after_nl, [token | acc], new_line, new_column, new_pos)
   end
 
   # Block comment

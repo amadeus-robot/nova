@@ -124,16 +124,22 @@ defmodule Nova.Compiler.CodeGen do
     |> String.trim()
   end
 
-  # ─────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────_───────────────
   # Expressions
   # ─────────────────────────────────────────────────────────────
   # Literals
+
+  defp compile_expr(%Nova.Compiler.Ast.Wildcard{}), do: "_"
   defp compile_expr(%Ast.Literal{type: :number, value: v}), do: v
   defp compile_expr(%Ast.Literal{type: :string, value: v}), do: inspect(v)
   defp compile_expr(%Ast.Literal{type: :char, value: v}), do: "?#{v}"
 
   # Identifier
   defp compile_expr(%Ast.Identifier{name: n}), do: sanitize_name(n)
+
+  defp compile_expr(%Ast.BinaryOp{op: "/=", left: l, right: r}) do
+    "(#{compile_expr(l)} != #{compile_expr(r)})"
+  end
 
   defp compile_expr(%Ast.BinaryOp{op: "++", left: l, right: r}) do
     operator = if string_typed?(l) or string_typed?(r), do: "<>", else: "++"
@@ -147,6 +153,15 @@ defmodule Nova.Compiler.CodeGen do
   end
 
   # Function call / application
+  defp compile_expr(%Ast.FunctionCall{
+         function: %Ast.Identifier{name: <<l, _::binary>> = cname},
+         arguments: args
+       })
+       when l >= ?A and l <= ?Z do
+    elems = Enum.map_join(args, ", ", &compile_expr/1)
+    "{#{sanitize_name(cname)}, #{elems}}"
+  end
+
   defp compile_expr(%Ast.FunctionCall{function: f, arguments: as}) do
     f_code =
       case f do
@@ -173,7 +188,7 @@ defmodule Nova.Compiler.CodeGen do
   defp compile_expr(%Ast.LetBinding{bindings: bs, body: body}) do
     assigns =
       bs
-      |> Enum.map(fn {name, value} -> "#{sanitize_name(name.name)} = #{compile_expr(value)}" end)
+      |> Enum.map(&compile_let_binding/1)
       |> Enum.join(";\n")
 
     """
@@ -181,6 +196,45 @@ defmodule Nova.Compiler.CodeGen do
     #{indent(assigns, 4)}
       #{compile_expr(body)}
     end).()
+    """
+    |> String.trim()
+  end
+
+  # compile one binding inside a `let`
+
+  defp compile_let_binding(
+         {%Ast.FunctionCall{
+            function: %Ast.Identifier{name: <<f, _::binary>> = fname},
+            arguments: args
+          }, body}
+       )
+       when f > 96 do
+    params = Enum.map_join(args, ", ", &compile_pattern/1)
+    body_src = compile_expr(body) |> indent(4)
+
+    """
+    #{sanitize_name(fname)} = fn #{params} ->
+    #{body_src}
+    end
+    """
+    |> String.trim()
+  end
+
+  defp compile_let_binding({%Ast.Identifier{name: n}, value}) do
+    "#{sanitize_name(n)} = #{compile_expr(value)}"
+  end
+
+  defp compile_let_binding({lhs, rhs}) do
+    "#{compile_pattern(lhs)} = #{compile_expr(rhs)}"
+  end
+
+  defp compile_let_binding(
+         {%Ast.FunctionCall{function: %Ast.Identifier{name: fname}, arguments: args}, value}
+       ) do
+    params = args |> Enum.map(&compile_pattern/1) |> Enum.join(", ")
+
+    """
+    #{sanitize_name(fname)} = fn #{params} -> #{compile_expr(value)} end
     """
     |> String.trim()
   end
@@ -257,10 +311,27 @@ defmodule Nova.Compiler.CodeGen do
     do: "[" <> (es |> Enum.map(&compile_pattern/1) |> Enum.join(", ")) <> "]"
 
   defp compile_pattern(%Ast.FunctionCall{
+         function: %Ast.Identifier{name: "Tuple"},
+         arguments: args
+       }) do
+    "{" <> Enum.map_join(args, ", ", &compile_pattern/1) <> "}"
+  end
+
+  defp compile_pattern(%Ast.FunctionCall{
          function: %Nova.Compiler.Ast.Identifier{name: ":"},
          arguments: [a, b]
        }),
        do: "[ #{compile_pattern(a)} | #{compile_pattern(b)} ]"
+
+  defp compile_pattern(%Ast.FunctionCall{
+         function: %Ast.Identifier{name: <<l, _::binary>> = cname},
+         arguments: args
+       })
+       when l >= ?A and l <= ?Z do
+    IO.inspect({"HERE", args})
+    elems = Enum.map_join(args, ", ", &compile_pattern/1)
+    "{#{sanitize_name(cname)}, #{elems}}"
+  end
 
   defp compile_pattern(%Ast.FunctionCall{function: f, arguments: a}),
     do: compile_expr(%Ast.FunctionCall{function: f, arguments: a})
@@ -290,6 +361,7 @@ defmodule Nova.Compiler.CodeGen do
   end
 
   # Replace prime (') with _prima to create valid Elixir identifiers
+  defp sanitize_name("after"), do: "after_"
   defp sanitize_name(name) when is_binary(name), do: String.replace(name, "'", "_prima")
 
   # A Nova module name may arrive as an `Ast.Identifier` or a raw string.

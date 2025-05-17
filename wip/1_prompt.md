@@ -14,7 +14,17 @@ nova code...
  </tests>
 </implementation>
 ```
+tests will be evaluated as an expression, should return true if success
+all pure data types derive Eq so can be tested for equality
+
 implementation code doesn't have to redefine or re import things already provided in types or defined_imports section, as these are already available on the namespace, same for tests
+
+for deconstructing arrays head and tail, prefer the syntax 
+```
+case xs of
+   [] -> ...
+   h : t -> ...
+```
 
 
 <defined_imports>
@@ -257,23 +267,35 @@ data Decl
 </types>
 
 
-<function>
-  <name>parse_identifier/1</name>
-  <old_code>
-defp parse_identifier(tokens) do
-    tokens = skip_newlines(tokens)
+  <function>
+    <name>parse_type_class</name>
+    <old_code>
+  # Supports superclass constraints:  
+  #   class (Applicative m, Bind m) <= Monad m where …
+  defp parse_type_class(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "class") do
+      {tokens, _constraints} = skip_superclass_constraints(tokens)
 
-    case tokens do
-      [%Token{type: :identifier, value: name} | rest] -> {:ok, %Ast.Identifier{name: name}, rest}
-      _ -> {:error, "Expected identifier"}
+      with {:ok, class_name, tokens} <- parse_identifier(tokens),
+           {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens),
+           {:ok, _, tokens} <- expect_keyword(tokens, "where"),
+           {:ok, methods, tokens} <- parse_many(&parse_type_signature/1, tokens) do
+        {:ok,
+         %Ast.TypeClass{
+           name: class_name.name,
+           type_vars: Enum.map(type_vars, & &1.name),
+           methods: methods
+         }, tokens}
+      end
     end
   end
-  </old_code>
-  <description>
-Parses a simple identifier.
-It skips leading newlines and expects a token of type `:identifier`.
-Returns an `Ast.Identifier` node.
-  </description>
-</function>
+    </old_code>
+    <description>
+Parses a type class declaration of the form `class [Constraints <=] ClassName TypeVar1 TypeVar2 where Methods`.
+It expects the "class" keyword, optionally skips superclass constraints, parses the class name and type variables, expects "where", and parses zero or more method type signatures.
+Returns `{:ok, %Ast.TypeClass{}, remaining_tokens}`.
+    </description>
+    <local_deps>expect_keyword, skip_superclass_constraints, parse_identifier, parse_many, parse_type_signature</local_deps>
+  </function>
 
 

@@ -29,7 +29,8 @@ defmodule Nova3.MixProject do
       {:mnesia_kv, git: "https://github.com/xenomorphtech/mnesia_kv.git"},
       {:plug, "~> 1.15"},
       {:bandit, "~> 1.4"},
-      {:cors_plug, "~> 3.0"}
+      {:cors_plug, "~> 3.0"},
+      {:finch, "~> 0.19"}
     ]
   end
 end
