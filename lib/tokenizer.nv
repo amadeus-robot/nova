@@ -6,7 +6,6 @@ import Prelude
 -- import Data.Maybe (Maybe(..))
 -- import Data.String (Pattern(..), charAt, drop, length, singleton, splitAt, take, uncons)
 -- import Data.String.CodeUnits (fromCharArray, toCharArray)
--- import Data.Tuple (Tuple(..))
 -- 
 type Position = 
    { line :: Int

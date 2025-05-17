@@ -24,8 +24,8 @@ defmodule Nova3.MixProject do
       {:beaver, "~> 0.4"},
       {:llvm_config, "~> 0.1"},
       {:sweet_xml, "~> 0.7"}
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      {:rocksdb, git: "https://github.com/xenomorphtech/erlang-rocksdb.git", override: true},
+      {:mnesia_kv, git: "https://github.com/xenomorphtech/mnesia_kv.git"}
     ]
   end
 end
