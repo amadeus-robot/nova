@@ -1314,7 +1314,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   defp parse_multiplicative_expression(tokens) do
     # <- was parse_comparison_expression/1
-    with {:ok, left, tokens} <- parse_application(tokens) do
+    with {:ok, left, tokens} <- parse_unary_expression(tokens) do
       case tokens do
         [%Token{type: :operator, value: op} | rest] when op in ["*", "/"] ->
           with {:ok, right, rest} <- parse_multiplicative_expression(rest) do
@@ -1339,6 +1339,18 @@ defmodule Nova.Compiler.Parser do
       end
     end
   end
+
+  # ------------------------------------------------------------
+  # 5-a. unary (-  +  !)          – tighter than multiplicative
+  # ------------------------------------------------------------
+  defp parse_unary_expression([%Token{type: :operator, value: op} | rest])
+       when op in ["-", "+", "!"] do
+    with {:ok, expr, rest} <- parse_unary_expression(rest) do
+      {:ok, %Ast.UnaryOp{op: op, value: expr}, rest}
+    end
+  end
+
+  defp parse_unary_expression(tokens), do: parse_application(tokens)
 
   # Function application parsing
   defp parse_application([%Token{column: base} | _] = toks) do
