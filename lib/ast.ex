@@ -18,7 +18,8 @@ defmodule Nova.Compiler.Ast do
   end
 
   defmodule TypeClass do
-    defstruct [:name, :type_vars, :methods]
+    # `kind` stores an optional kind annotation for the class, e.g. `Constraint`.
+    defstruct [:name, :type_vars, :methods, kind: nil]
   end
 
   defmodule TypeAlias do
@@ -26,7 +27,8 @@ defmodule Nova.Compiler.Ast do
   end
 
   defmodule TypeClassInstance do
-    defstruct [:class_name, :type, :methods]
+    # `derived?` is set when the instance was declared via `derive instance`
+    defstruct [:class_name, :type, :methods, derived?: false]
   end
 
   defmodule DataType do

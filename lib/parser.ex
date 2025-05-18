@@ -409,6 +409,16 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
+  # If a class header contains a kind annotation, consume it and return the
+  # parsed type. The annotation is optional and currently stored verbatim.
+  defp maybe_parse_class_kind([%Token{type: :operator, value: "::"} | rest]) do
+    with {:ok, kind, rest} <- parse_type(rest) do
+      {rest, kind}
+    end
+  end
+
+  defp maybe_parse_class_kind(tokens), do: {tokens, nil}
+
   # Drop leading instance constraints – identical idea but we only
   # need the remainder of the tokens (constraints are ignored for now).
   defp drop_instance_constraints(tokens) do
@@ -434,15 +444,31 @@ defmodule Nova.Compiler.Parser do
       {tokens, _constraints} = skip_superclass_constraints(tokens)
 
       with {:ok, class_name, tokens} <- parse_identifier(tokens),
-           {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens),
-           {:ok, _, tokens} <- expect_keyword(tokens, "where"),
-           {:ok, methods, tokens} <- parse_many(&parse_type_signature/1, tokens) do
-        {:ok,
-         %Ast.TypeClass{
-           name: class_name.name,
-           type_vars: Enum.map(type_vars, & &1.name),
-           methods: methods
-         }, tokens}
+           {tokens, kind} <- maybe_parse_class_kind(tokens),
+           {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens) do
+        tokens = skip_newlines(tokens)
+
+        case tokens do
+          [%Token{type: :keyword, value: "where"} | rest] ->
+            with {:ok, methods, rest} <- parse_many(&parse_type_signature/1, rest) do
+              {:ok,
+               %Ast.TypeClass{
+                 name: class_name.name,
+                 type_vars: Enum.map(type_vars, & &1.name),
+                 methods: methods,
+                 kind: kind
+               }, rest}
+            end
+
+          _ ->
+            {:ok,
+             %Ast.TypeClass{
+               name: class_name.name,
+               type_vars: Enum.map(type_vars, & &1.name),
+               methods: [],
+               kind: kind
+             }, tokens}
+        end
       end
     end
   end
@@ -451,6 +477,12 @@ defmodule Nova.Compiler.Parser do
   #   instance showString :: Show String where …
   #   instance (Eq a) <= Show a where …
   defp parse_type_class_instance(tokens) do
+    {tokens, derived?} =
+      case tokens do
+        [%Token{type: :keyword, value: "derive"} | rest] -> {rest, true}
+        _ -> {tokens, false}
+      end
+
     with {:ok, _, tokens} <- expect_keyword(tokens, "instance") do
       tokens = drop_newlines(tokens)
 
@@ -473,7 +505,8 @@ defmodule Nova.Compiler.Parser do
              %Ast.TypeClassInstance{
                class_name: class_name,
                type: type_ast,
-               methods: methods
+               methods: methods,
+               derived?: derived?
              }, tokens}
           end
 
@@ -489,7 +522,8 @@ defmodule Nova.Compiler.Parser do
              %Ast.TypeClassInstance{
                class_name: class_name.name,
                type: type_ast,
-               methods: methods
+               methods: methods,
+               derived?: derived?
              }, tokens}
           end
       end
@@ -783,19 +817,19 @@ defmodule Nova.Compiler.Parser do
     )
   end
 
-  defp maybe_parse_where(tokens, outer_indent, body) do
+  defp maybe_parse_where(tokens, _outer_indent, body) do
     tokens = skip_newlines(tokens)
 
     case tokens do
-      [%Token{type: :keyword, value: "where"} | rest0] ->
+      # grab the column where "where" begins
+      [%Token{type: :keyword, value: "where", column: where_col} | rest0] ->
         rest0 = skip_newlines(rest0)
 
-        # first binding must be further indented
+        # first binding must indent strictly more than where_col
         [%Token{column: col_first} | _] = rest0
-        true = col_first > outer_indent
+        true = col_first > where_col
 
-        # gather bindings while we stay indented > outer_indent
-        {:ok, bindings, rest} = collect_where_bindings(rest0, outer_indent, [])
+        {:ok, bindings, rest} = collect_where_bindings(rest0, where_col, [])
         {:ok, %Ast.LetBinding{bindings: bindings, body: body}, rest}
 
       _ ->
@@ -803,18 +837,13 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp collect_where_bindings(tokens, outer_indent, acc) do
+  defp collect_where_bindings(tokens, where_col, acc) do
     tokens = skip_newlines(tokens)
 
     case tokens do
-      [%Token{column: col} | _] when col > outer_indent ->
-        case parse_binding(tokens) do
-          {:ok, bind, rest} ->
-            collect_where_bindings(rest, outer_indent, [bind | acc])
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+      [%Token{column: col} | _] when col > where_col ->
+        {:ok, bind, rest} = parse_binding(tokens)
+        collect_where_bindings(rest, where_col, [bind | acc])
 
       _ ->
         {:ok, Enum.reverse(acc), tokens}

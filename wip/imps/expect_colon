@@ -1,0 +1,19 @@
+<implementation>
+ <name>expect_colon</name>
+ <code>
+expect_colon :: Array Token -> ParseOutput String
+expect_colon tokens =
+  case tokens of
+    [] -> Error "Expected ':' but found end of input"
+    h : t ->
+      if h.value == ":" then
+        Ok ":" t
+      else
+        Error ("Expected ':' but found " <> h.value)
+ </code>
+ <tests>
+  <test>expect_colon [{ttype: TTDelimiter, value: ":", line: 1, column: 1, pos: 0}, {ttype: TTIdentifier, value: "a", line: 1, column: 2, pos: 1}] == Ok ":" [{ttype: TTIdentifier, value: "a", line: 1, column: 2, pos: 1}]</test>
+  <test>case expect_colon [{ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 0}] of Error _ -> true; _ -> false</test>
+  <test>case expect_colon [] of Error _ -> true; _ -> false</test>
+ </tests>
+</implementation>

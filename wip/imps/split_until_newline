@@ -1,0 +1,52 @@
+<implementation>
+ <name>split_until_newline</name>
+ <code>
+split_until_newline :: Array Token -> Tuple (Array Token) (Array Token)
+split_until_newline tokens =
+  let
+    is_not_newline token =
+      case token.ttype of
+        TTNewline -> false
+        _ -> true
+  in
+  elixirEnumSplitWhile is_not_newline tokens
+ </code>
+ <tests>
+  <test>
+   let
+    t1 = { ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 0 }
+    t2 = { ttype: TTOperator, value: "+", line: 1, column: 2, pos: 1 }
+    t3 = { ttype: TTNewline, value: "\n", line: 1, column: 3, pos: 2 }
+    t4 = { ttype: TTIdentifier, value: "b", line: 2, column: 1, pos: 3 }
+    tokens = [t1, t2, t3, t4]
+    Tuple before after = split_until_newline tokens
+   in
+   before == [t1, t2] && after == [t3, t4]
+  </test>
+  <test>
+   let
+    t1 = { ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 0 }
+    t2 = { ttype: TTOperator, value: "+", line: 1, column: 2, pos: 1 }
+    tokens = [t1, t2]
+    Tuple before after = split_until_newline tokens
+   in
+   before == [t1, t2] && after == []
+  </test>
+  <test>
+   let
+    t1 = { ttype: TTNewline, value: "\n", line: 1, column: 1, pos: 0 }
+    t2 = { ttype: TTIdentifier, value: "a", line: 2, column: 1, pos: 1 }
+    tokens = [t1, t2]
+    Tuple before after = split_until_newline tokens
+   in
+   before == [] && after == [t1, t2]
+  </test>
+  <test>
+   let
+    tokens = []
+    Tuple before after = split_until_newline tokens
+   in
+   before == [] && after == []
+  </test>
+ </tests>
+</implementation>

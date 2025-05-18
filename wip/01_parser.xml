@@ -1,0 +1,2474 @@
+<module name="Nova.Compiler.Parser">
+
+  <function>
+    <name>skip_newlines</name>
+    <old_code>
+  defp skip_newlines(tokens) do
+    Enum.drop_while(tokens, fn %Token{type: t} -> t == :newline end)
+  end
+    </old_code>
+    <description>
+Skips any leading newline tokens from the input token list.
+It iterates through the tokens and drops them as long as they are of type `:newline`.
+Returns the list of tokens starting from the first non-newline token, or an empty list if all tokens were newlines.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+  <function>
+    <name>drop_newlines</name>
+    <old_code>
+  defp drop_newlines([%Token{type: :newline} | rest]), do: drop_newlines(rest)
+  defp drop_newlines(tokens), do: tokens
+    </old_code>
+    <description>
+Recursively drops any leading newline tokens from the input token list.
+This is a simple recursive implementation of skipping leading newlines.
+Returns the list of tokens starting from the first non-newline token.
+    </description>
+    <local_deps>drop_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>strip_newlines</name>
+    <old_code>
+  defp strip_newlines(list),
+    do:
+      Enum.reject(list, fn
+        %Token{type: :newline} -> true
+        _ -> false
+      end)
+    </old_code>
+    <description>
+Removes all newline tokens from a list of tokens, regardless of their position.
+It iterates through the list and keeps only tokens that are not of type `:newline`.
+Returns a new list containing only the non-newline tokens.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+  <function>
+    <name>ensure_consumed</name>
+    <old_code>
+  defp ensure_consumed(rest) do
+    case skip_newlines(rest) do
+      [] ->
+        :ok
+
+      leftover ->
+        tok = hd(leftover)
+
+        {:error,
+         "unexpected tokens after successful parse – " <>
+           "#{tok.type}:#{inspect(tok.value)} at line #{tok.line}, col #{tok.column}"}
+    end
+  end
+    </old_code>
+    <description>
+Checks if the entire token stream has been consumed after a parsing operation.
+It skips any trailing newlines and then checks if the list is empty.
+Returns `:ok` if no tokens remain (after skipping newlines), otherwise returns an error tuple with details about the first unconsumed token.
+    </description>
+    <local_deps>skip_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>parse_declarations</name>
+    <old_code>
+  def parse_declarations(tokens), do: parse_declarations(tokens, [])
+  def parse_declarations([], acc), do: {:ok, Enum.reverse(acc), []}
+
+  def parse_declarations(tokens, acc) do
+    tokens = skip_newlines(tokens)
+
+    case parse_declaration(tokens) do
+      {:ok, decl, rest} -> parse_declarations(rest, [decl | acc])
+      {:error, _} when acc != [] -> {:ok, Enum.reverse(acc), tokens}
+      other -> other
+    end
+  end
+    </old_code>
+    <description>
+Parses a sequence of top-level declarations (like functions, data types, imports) from the token stream.
+It works recursively, attempting to parse a single declaration, accumulating the results, and continuing with the rest of the tokens.
+Newlines are skipped before attempting to parse each declaration.
+Returns `{:ok, list_of_declarations, remaining_tokens}` or `{:error, reason}` if the first declaration fails.
+    </description>
+    <local_deps>parse_declarations, skip_newlines, parse_declaration</local_deps>
+  </function>
+
+  <function>
+    <name>parse_declaration</name>
+    <old_code>
+  def parse_declaration(tokens) do
+    # try function+signature combo first
+    case parse_function_with_type_signature(tokens) do
+      {:ok, v, rest} ->
+        {:ok, v, rest}
+
+      {:error, _} ->
+        case parse_type_signature(tokens) do
+          {:ok, ts, rest} ->
+            {:ok, ts, rest}
+
+          {:error, _} ->
+            parse_any(
+              [
+                &parse_module/1,
+                &parse_import/1,
+                &parse_foreign_import_simple/1,
+                &parse_foreign_import/1,
+                &parse_data_declaration/1,
+                &parse_type_alias/1,
+                &parse_type_class/1,
+                &parse_type_class_instance/1,
+                &parse_function_declaration/1
+              ],
+              tokens
+            )
+        end
+    end
+  end
+    </old_code>
+    <description>
+Attempts to parse a single top-level declaration.
+It tries parsers in a specific order: function with type signature, then type signature alone, then any of the other declaration types (module, import, data, type alias, type class, instance, function).
+Uses `parse_any` to try multiple parsers.
+Returns `{:ok, ast_node, remaining_tokens}` or `{:error, reason}` if no declaration parser succeeds.
+    </description>
+    <local_deps>parse_function_with_type_signature, parse_type_signature, parse_any, parse_module, parse_import, parse_foreign_import_simple, parse_foreign_import, parse_data_declaration, parse_type_alias, parse_type_class, parse_type_class_instance, parse_function_declaration</local_deps>
+  </function>
+
+  <function>
+    <name>parse_module</name>
+    <old_code>
+  def parse_module(tokens) do
+    tokens = drop_newlines(tokens)
+
+    with {:ok, _, tokens} <- expect_keyword(tokens, "module"),
+         {:ok, module_name, tokens} <- parse_qualified_identifier(tokens),
+         {:ok, _, tokens} <- expect_keyword(tokens, "where") do
+      {:ok, %Ast.Module{name: module_name}, tokens}
+    else
+      other -> other
+    end
+  end
+    </old_code>
+    <description>
+Parses a module declaration of the form `module Module.Name where ...`.
+It expects the keywords "module" and "where" and parses a qualified identifier for the module name in between.
+Returns `{:ok, %Ast.Module{}, remaining_tokens}` or an error tuple if the expected structure is not found.
+    </description>
+    <local_deps>drop_newlines, expect_keyword, parse_qualified_identifier</local_deps>
+  </function>
+
+  <function>
+    <name>parse_import</name>
+    <old_code>
+  defp parse_import(tokens) do
+    tokens = drop_newlines(tokens)
+
+    with {:ok, _, tokens} <- expect_keyword(tokens, "import"),
+         {:ok, mod, tokens} <- parse_qualified_identifier(tokens),
+         {alias, tokens} <- parse_import_alias(tokens),
+         {:ok, items, hiding?, tokens} <- parse_import_selectors(tokens) do
+      {:ok,
+       %Ast.ImportDeclaration{
+         module: mod,
+         alias: alias,
+         items: items,
+         hiding?: hiding?
+       }, drop_newlines(tokens)}
+    end
+  end
+    </old_code>
+    <description>
+Parses an import declaration of the form `import Module.Name [as Alias] [( Items ) | hiding ( Items )]`.
+It expects the "import" keyword, parses the module name, optionally parses an alias, and then parses the import selectors (items to import or hide).
+Returns `{:ok, %Ast.ImportDeclaration{}, remaining_tokens}`.
+    </description>
+    <local_deps>drop_newlines, expect_keyword, parse_qualified_identifier, parse_import_alias, parse_import_selectors</local_deps>
+  </function>
+
+  <function>
+    <name>parse_import_alias</name>
+    <old_code>
+  # as  <ident>
+  defp parse_import_alias([%Token{type: :identifier, value: "as"} | rest]) do
+    with {:ok, id, rest} <- parse_identifier(rest) do
+      {id.name, rest}
+    end
+  end
+
+  defp parse_import_alias(tokens), do: {nil, tokens}
+    </old_code>
+    <description>
+Parses an optional "as Alias" clause in an import declaration.
+If the tokens start with the identifier "as", it attempts to parse the following identifier as the alias.
+Returns `{alias_name, remaining_tokens}` where `alias_name` is the string or `nil` if no alias was present.
+    </description>
+    <local_deps>parse_identifier</local_deps>
+  </function>
+
+  <function>
+    <name>parse_import_selectors</name>
+    <old_code>
+  #    ("(" … ")" | "hiding" "(" … ")" | ε)
+  defp parse_import_selectors([%Token{type: :identifier, value: "hiding"} | rest]) do
+    with {:ok, items, rest} <- parse_paren_import_list(rest) do
+      {:ok, items, true, rest}
+    end
+  end
+
+  defp parse_import_selectors(tokens) do
+    case parse_paren_import_list(tokens) do
+      {:ok, items, rest} -> {:ok, items, false, rest}
+      {:error, _} -> {:ok, [], false, tokens}
+    end
+  end
+    </old_code>
+    <description>
+Parses the optional part of an import declaration specifying which items to import or hide.
+It looks for either `( Items )` or `hiding ( Items )`.
+If neither is found, it assumes no selectors are specified.
+Returns `{:ok, list_of_items, is_hiding?, remaining_tokens}`.
+    </description>
+    <local_deps>parse_paren_import_list</local_deps>
+  </function>
+
+  <function>
+    <name>parse_paren_import_list</name>
+    <old_code>
+  # "(" ImportList ")"
+  defp parse_paren_import_list([%Token{type: :delimiter, value: "("} | rest]) do
+    with {:ok, items, rest} <-
+           parse_separated(&parse_import_item/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, ")") do
+      {:ok, items, rest}
+    end
+  end
+
+  defp parse_paren_import_list(_), do: {:error, "no paren import list"}
+    </old_code>
+    <description>
+Parses a parenthesized list of import items, like `( Item1, Item2 )`.
+It expects an opening parenthesis, uses `parse_separated` to parse items separated by commas, and expects a closing parenthesis.
+Returns `{:ok, list_of_items, remaining_tokens}` or `{:error, reason}` if the structure doesn't match.
+    </description>
+    <local_deps>parse_separated, parse_import_item, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_import_item</name>
+    <old_code>
+  # Foo | Foo(..) | Foo(Bar,Baz)
+  defp parse_import_item(tokens) do
+    with {:ok, first, tokens} <- parse_identifier(tokens) do
+      case tokens do
+        [%Token{type: :delimiter, value: "("} | _] ->
+          # keep the "(" so parse_constructors/2 matches its head clause
+          parse_constructors(tokens, first.name)
+
+        _ ->
+          {:ok, first.name, tokens}
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses a single item within an import list.
+An item can be a simple identifier (e.g., `Foo`) or an identifier followed by a parenthesized list of constructors (e.g., `Foo(Bar, Baz)` or `Foo(..)`).
+It first parses an identifier and then checks if it's followed by an opening parenthesis to handle the constructor list case.
+Returns `{:ok, item_representation, remaining_tokens}`.
+    </description>
+    <local_deps>parse_identifier, parse_constructors</local_deps>
+  </function>
+
+  <function>
+    <name>parse_constructors</name>
+    <old_code>
+  defp parse_constructors([%Token{type: :delimiter, value: "("} | rest], mod) do
+    case rest do
+      [%Token{type: :operator, value: "."}, %Token{type: :operator, value: "."} | rest2] ->
+        {:ok, {mod, :all}, expect_delimiter(rest2, ")") |> elem(2)}
+
+      [%Token{type: :operator, value: ".."} | rest2] ->
+        {:ok, {mod, :all}, expect_delimiter(rest2, ")") |> elem(2)}
+
+      _ ->
+        with {:ok, ctors, rest2} <-
+               parse_separated(&parse_identifier/1, &expect_delimiter(&1, ","), rest),
+             {:ok, _, rest3} <- expect_delimiter(rest2, ")") do
+          {:ok, {mod, Enum.map(ctors, & &1.name)}, rest3}
+        end
+    end
+  end
+    </old_code>
+    <description>
+Parses the parenthesized list of constructors following an identifier in an import item, like `(Ctor1, Ctor2)` or `(..)`.
+It handles the special `(..)` syntax for importing all constructors and a comma-separated list of specific constructors.
+Expects the opening parenthesis to have already been consumed (or checked).
+Returns `{:ok, {module_name, list_of_constructors | :all}, remaining_tokens}`.
+    </description>
+    <local_deps>expect_delimiter, parse_separated, parse_identifier</local_deps>
+  </function>
+
+  <function>
+    <name>parse_foreign_import_simple</name>
+    <old_code>
+  defp parse_foreign_import_simple(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "foreign"),
+         {:ok, _, tokens} <- expect_keyword(tokens, "import"),
+         {:ok, name, tokens} <- parse_identifier(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "::"),
+         {:ok, type, tokens} <- parse_type(tokens) do
+      {:ok,
+       %Ast.ForeignImport{
+         # not specified
+         module: nil,
+         # not specified
+         function: nil,
+         # the identifier itself
+         alias: name.name,
+         type_signature: %Ast.TypeSignature{
+           name: name.name,
+           type_vars: [],
+           constraints: [],
+           type: type
+         }
+       }, drop_newlines(tokens)}
+    else
+      _ -> {:error, "plain foreign import parse failed"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a simple foreign import declaration of the form `foreign import name :: Type`.
+It expects the keywords "foreign" and "import", parses an identifier for the local name, expects "::", and parses the foreign type signature.
+Returns `{:ok, %Ast.ForeignImport{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>expect_keyword, parse_identifier, expect_operator, parse_type, drop_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>parse_foreign_import</name>
+    <old_code>
+  defp parse_foreign_import(tokens) do
+    tokens = drop_newlines(tokens)
+
+    with {:ok, _, tokens} <- expect_keyword(tokens, "foreign"),
+         {:ok, _, tokens} <- expect_keyword(tokens, "import"),
+         # ⬇︎ target language is an identifier (keep it if you ever need it)
+         {:ok, _lang, tokens} <- parse_identifier(tokens),
+         {:ok, mod, tokens} <- parse_string_literal(tokens),
+         {:ok, fun, tokens} <- parse_string_literal(tokens),
+         {:ok, al, tokens} <- parse_identifier(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "::"),
+         {:ok, type, tokens} <- parse_type(tokens) do
+      {:ok,
+       %Ast.ForeignImport{
+         module: mod,
+         function: fun,
+         alias: al.name,
+         type_signature: %Ast.TypeSignature{
+           name: al.name,
+           type_vars: [],
+           constraints: [],
+           type: type
+         }
+       }, tokens}
+    else
+      other -> other
+    end
+  end
+    </old_code>
+    <description>
+Parses a detailed foreign import declaration of the form `foreign import lang module_string function_string alias :: Type`.
+It expects the keywords "foreign" and "import", parses a language identifier, two string literals for module and function names, an identifier for the local alias, expects "::", and parses the foreign type signature.
+Returns `{:ok, %Ast.ForeignImport{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>drop_newlines, expect_keyword, parse_identifier, parse_string_literal, expect_operator, parse_type</local_deps>
+  </function>
+
+  <function>
+    <name>parse_record_pattern</name>
+    <old_code>
+  defp parse_record_pattern([%Token{type: :delimiter, value: "{"} | rest]) do
+    with {:ok, fields, rest} <-
+           parse_separated(&parse_record_field_pattern/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, "}") do
+      {:ok, %Ast.RecordPattern{fields: fields}, rest}
+    end
+  end
+
+  defp parse_record_pattern(_), do: {:error, "Expected record pattern"}
+    </old_code>
+    <description>
+Parses a record pattern of the form `{ field1: pattern1, field2, ... }`.
+It expects an opening brace, parses a comma-separated list of record field patterns, and expects a closing brace.
+Returns `{:ok, %Ast.RecordPattern{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_record_field_pattern, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_record_field_pattern</name>
+    <old_code>
+  defp parse_record_field_pattern(tokens) do
+    with {:ok, lbl, tokens} <- IO.inspect(parse_label(tokens)) do
+      cond do
+        # ──────────────── `:` delimiter ────────────────
+        match?({:ok, _, _}, expect_delimiter(tokens, ":")) ->
+          {:ok, _, tokens} = expect_delimiter(tokens, ":")
+
+          with {:ok, pat, tokens} <- parse_pattern(tokens) do
+            {:ok, {lbl.name, pat}, tokens}
+          end
+
+        # ──────────────── `=` operator ────────────────
+        match?({:ok, _, _}, expect_operator(tokens, "=")) ->
+          {:ok, _, tokens} = expect_operator(tokens, "=")
+
+          with {:ok, pat, tokens} <- parse_pattern(tokens) do
+            {:ok, {lbl.name, pat}, tokens}
+          end
+
+        # ─────────── shorthand  { head } ───────────────
+        true ->
+          {:ok, {lbl.name, %Ast.Identifier{name: lbl.name}}, tokens}
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses a single field within a record pattern.
+A field can be `label: pattern`, `label = pattern`, or just `label` (shorthand for `label: label`).
+It first parses the label and then checks for `:` or `=` to determine the structure.
+Returns `{:ok, {label_name, pattern_ast}, remaining_tokens}`.
+    </description>
+    <local_deps>parse_label, expect_delimiter, parse_pattern, expect_operator</local_deps>
+  </function>
+
+  <function>
+    <name>parse_data_declaration</name>
+    <old_code>
+  # Data type declaration
+  defp parse_data_declaration(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "data"),
+         {:ok, type_name, tokens} <- parse_identifier(tokens),
+         {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens),
+         # <ΓöÇΓöÇ here
+         tokens = skip_newlines(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "="),
+         # <ΓöÇΓöÇ and here
+         tokens = skip_newlines(tokens),
+         {:ok, constructors, tokens} <- parse_data_constructors(tokens) do
+      {:ok,
+       %Ast.DataType{
+         name: type_name.name,
+         type_vars: Enum.map(type_vars, fn var -> var.name end),
+         constructors: constructors
+       }, tokens}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Parses a data type declaration of the form `data TypeName TypeVar1 TypeVar2 = Constructor1 | Constructor2 ...`.
+It expects the "data" keyword, parses the type name, parses zero or more type variables, expects "=", skips newlines, and parses the list of constructors separated by "|".
+Returns `{:ok, %Ast.DataType{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>expect_keyword, parse_identifier, parse_many, skip_newlines, expect_operator, parse_data_constructors</local_deps>
+  </function>
+
+  <function>
+    <name>parse_data_constructors</name>
+    <old_code>
+  defp parse_data_constructors(tokens) do
+    parse_separated(&parse_data_constructor/1, &expect_operator(&1, "|"), tokens)
+  end
+    </old_code>
+    <description>
+Parses the list of data constructors in a data type declaration, separated by "|".
+It uses `parse_separated` with `parse_data_constructor` as the item parser and `expect_operator` for "|".
+Returns `{:ok, list_of_constructors, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_data_constructor, expect_operator</local_deps>
+  </function>
+
+  <function>
+    <name>parse_data_constructor</name>
+    <old_code>
+  defp parse_data_constructor(tokens) do
+    with {:ok, constructor_name, tokens} <- parse_identifier(tokens),
+         # ⬇️  collect atomic types, not full applications
+         {:ok, fields, tokens} <- parse_many(&parse_type_atom/1, tokens) do
+      {:ok,
+       %Ast.DataConstructor{
+         name: constructor_name.name,
+         fields: fields
+       }, tokens}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Parses a single data constructor, which consists of a name followed by zero or more fields (type atoms).
+It parses an identifier for the constructor name and then uses `parse_many` to collect any following type atoms as fields.
+Returns `{:ok, %Ast.DataConstructor{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_identifier, parse_many, parse_type_atom</local_deps>
+  </function>
+
+  <function>
+    <name>skip_superclass_constraints</name>
+    <old_code>
+  # Skip superclass constraints in a `class` declaration – everything
+  # up to (and including) the first "<=" operator is treated as
+  # constraints and ignored for now. Returns `{rest, constraints_tokens}`.
+  defp skip_superclass_constraints(tokens) do
+    tokens = skip_newlines(tokens)
+
+    {before, after_} =
+      Enum.split_while(tokens, fn
+        %Token{type: :operator, value: "<="} -> false
+        _ -> true
+      end)
+
+    case after_ do
+      [%Token{type: :operator, value: "<="} | rest] -> {rest, before}
+      _ -> {tokens, []}
+    end
+  end
+    </old_code>
+    <description>
+Skips tokens representing superclass constraints in a type class declaration (e.g., `(C1, C2) <=`).
+It splits the token list at the first occurrence of the "<=" operator.
+Returns a tuple `{remaining_tokens_after_constraints, tokens_representing_constraints}`. The constraints tokens are returned but currently ignored.
+    </description>
+    <local_deps>skip_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>drop_instance_constraints</name>
+    <old_code>
+  # Drop leading instance constraints – identical idea but we only
+  # need the remainder of the tokens (constraints are ignored for now).
+  defp drop_instance_constraints(tokens) do
+    {_before, after_} =
+      Enum.split_while(tokens, fn
+        %Token{type: :operator, value: "<="} -> false
+        _ -> true
+      end)
+
+    case after_ do
+      [%Token{type: :operator, value: "<="} | rest] -> rest
+      _ -> tokens
+    end
+  end
+    </old_code>
+    <description>
+Drops tokens representing instance constraints in a type class instance declaration (e.g., `(C1, C2) <=`).
+It splits the token list at the first occurrence of the "<=" operator and returns only the tokens *after* the "<=".
+Returns the list of tokens following the constraints (or the original list if no constraints are present). The constraints tokens are discarded.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+  <function>
+    <name>parse_type_class</name>
+    <old_code>
+  # ────────────────────────────────────────────────────
+  # UPDATED PARSERS
+  # ────────────────────────────────────────────────────
+  # Supports superclass constraints:  
+  #   class (Applicative m, Bind m) <= Monad m where …
+  defp parse_type_class(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "class") do
+      {tokens, _constraints} = skip_superclass_constraints(tokens)
+
+      with {:ok, class_name, tokens} <- parse_identifier(tokens),
+           {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens),
+           {:ok, _, tokens} <- expect_keyword(tokens, "where"),
+           {:ok, methods, tokens} <- parse_many(&parse_type_signature/1, tokens) do
+        {:ok,
+         %Ast.TypeClass{
+           name: class_name.name,
+           type_vars: Enum.map(type_vars, & &1.name),
+           methods: methods
+         }, tokens}
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses a type class declaration of the form `class [Constraints <=] ClassName TypeVar1 TypeVar2 where Methods`.
+It expects the "class" keyword, optionally skips superclass constraints, parses the class name and type variables, expects "where", and parses zero or more method type signatures.
+Returns `{:ok, %Ast.TypeClass{}, remaining_tokens}`.
+    </description>
+    <local_deps>expect_keyword, skip_superclass_constraints, parse_identifier, parse_many, parse_type_signature</local_deps>
+  </function>
+
+  <function>
+    <name>parse_type_class_instance</name>
+    <old_code>
+  # Handles both named and unnamed instances, with optional constraints:
+  #   instance showString :: Show String where …
+  #   instance (Eq a) <= Show a where …
+  defp parse_type_class_instance(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "instance") do
+      tokens = drop_newlines(tokens)
+
+      case tokens do
+        # ── Named instance – starts with ident followed by '::' ──
+        [%Token{type: :identifier, value: inst_name}, %Token{type: :operator, value: "::"} | rest] ->
+          rest = drop_instance_constraints(rest)
+
+          with {:ok, type_ast, tokens} <- parse_type(rest),
+               {:ok, _, tokens} <- expect_keyword(tokens, "where"),
+               {:ok, methods, tokens} <- parse_many(&parse_function_declaration/1, tokens) do
+            class_name =
+              case type_ast do
+                %Ast.FunctionCall{function: %Ast.Identifier{name: cn}} -> cn
+                %Ast.Identifier{name: cn} -> cn
+                _ -> inst_name
+              end
+
+            {:ok,
+             %Ast.TypeClassInstance{
+               class_name: class_name,
+               type: type_ast,
+               methods: methods
+             }, tokens}
+          end
+
+        # ── Unnamed instance – old syntax: Class Type where … ──
+        _ ->
+          tokens = drop_instance_constraints(tokens)
+
+          with {:ok, class_name, tokens} <- parse_identifier(tokens),
+               {:ok, type_ast, tokens} <- parse_type(tokens),
+               {:ok, _, tokens} <- expect_keyword(tokens, "where"),
+               {:ok, methods, tokens} <- parse_many(&parse_function_declaration/1, tokens) do
+            {:ok,
+             %Ast.TypeClassInstance{
+               class_name: class_name.name,
+               type: type_ast,
+               methods: methods
+             }, tokens}
+          end
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses a type class instance declaration.
+It handles two forms: named instances (`instance name :: Type where ...`) and unnamed instances (`instance [Constraints <=] Class Type where ...`).
+It expects the "instance" keyword, drops newlines, checks for the "::" pattern for named instances, drops constraints, parses the instance type (and class name implicitly for unnamed), expects "where", and parses the instance methods (function declarations).
+Returns `{:ok, %Ast.TypeClassInstance{}, remaining_tokens}`.
+    </description>
+    <local_deps>expect_keyword, drop_newlines, drop_instance_constraints, parse_type, parse_many, parse_function_declaration, parse_identifier</local_deps>
+  </function>
+
+  <function>
+    <name>split_type_and_rest</name>
+    <old_code>
+  defp split_type_and_rest(tokens, name) do
+    Enum.split_while(tokens, fn
+      %Token{type: :identifier, value: ^name} -> false
+      _ -> true
+    end)
+  end
+    </old_code>
+    <description>
+Splits a token list into two parts: tokens before an identifier matching a given name, and the tokens starting from that identifier.
+Used to separate the type signature tokens from the function declaration tokens when parsing `name :: Type name parameters = body`.
+Returns `{tokens_before_name, tokens_starting_from_name}`.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+  <function>
+    <name>parse_function_with_type_signature</name>
+    <old_code>
+  # Parse a function declaration with its type signature
+  defp parse_function_with_type_signature(tokens) do
+    tokens = drop_newlines(tokens)
+
+    case tokens do
+      [%Token{type: :identifier, value: name} | rest1] ->
+        with {:ok, _, rest2} <- expect_operator(rest1, "::"),
+             {type_tokens, rest3} <- split_type_and_rest(rest2, name),
+             {:ok, type_ast, []} <- parse_type(strip_newlines(type_tokens)),
+             {:ok, fun_ast, final} <- parse_function_declaration(rest3),
+             true <- fun_ast.name == name do
+          {:ok,
+           %Ast.FunctionDeclaration{
+             name: fun_ast.name,
+             parameters: fun_ast.parameters,
+             body: fun_ast.body,
+             type_signature: %Ast.TypeSignature{
+               name: name,
+               type_vars: [],
+               constraints: [],
+               type: type_ast
+             }
+           }, final}
+        else
+          _ -> {:error, "function-with-signature parse failed"}
+        end
+
+      _ ->
+        {:error, "Expected identifier at start of type signature"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a function declaration that includes a preceding type signature, e.g., `name :: Type name parameters = body`.
+It expects an identifier, then "::", splits the tokens to isolate the type signature part, parses the type, then parses the function declaration, and verifies the names match.
+Returns `{:ok, %Ast.FunctionDeclaration{} with type_signature, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>drop_newlines, expect_operator, split_type_and_rest, parse_type, strip_newlines, parse_function_declaration</local_deps>
+  </function>
+
+  <function>
+    <name>parse_type_signature</name>
+    <old_code>
+  # Type signature parsing
+  defp parse_type_signature(tokens) do
+    tokens = drop_newlines(tokens)
+
+    with {:ok, name, tokens} <- parse_identifier(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "::"),
+         {:ok, type, tokens} <- parse_type(tokens) do
+      {:ok, %Ast.TypeSignature{name: name.name, type_vars: [], constraints: [], type: type},
+       tokens}
+    else
+      other -> other
+    end
+  end
+    </old_code>
+    <description>
+Parses a standalone type signature declaration of the form `name :: Type`.
+It expects an identifier for the name, then "::", and parses the type expression.
+Returns `{:ok, %Ast.TypeSignature{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>drop_newlines, parse_identifier, expect_operator, parse_type</local_deps>
+  </function>
+
+  <function>
+    <name>parse_type</name>
+    <old_code>
+  # Type parsing
+  defp parse_type([%Token{type: :identifier, value: "forall"} | _] = toks),
+    do: parse_forall_type(toks)
+
+  defp parse_type(toks), do: parse_function_type(toks)
+    </old_code>
+    <description>
+Entry point for parsing type expressions.
+It dispatches to `parse_forall_type` if the type starts with "forall", otherwise it dispatches to `parse_function_type`.
+Returns `{:ok, type_ast, remaining_tokens}` or an error tuple from the dispatched parser.
+    </description>
+    <local_deps>parse_forall_type, parse_function_type</local_deps>
+  </function>
+
+  <function>
+    <name>parse_forall_type</name>
+    <old_code>
+  # forall a b.  ty
+  defp parse_forall_type([%Token{value: "forall"} | rest]) do
+    with {:ok, vars, rest} <- parse_many(&parse_identifier/1, rest),
+         {:ok, _, rest} <- expect_operator(rest, "."),
+         {:ok, ty, rest} <- parse_type(rest) do
+      {:ok, %Ast.ForAllType{vars: Enum.map(vars, & &1.name), type: ty}, rest}
+    end
+  end
+    </old_code>
+    <description>
+Parses a "forall" type quantification of the form `forall a b. Type`.
+It expects the "forall" keyword, parses one or more type variables (identifiers), expects ".", and then parses the rest of the type expression.
+Returns `{:ok, %Ast.ForAllType{}, remaining_tokens}`.
+    </description>
+    <local_deps>parse_many, parse_identifier, expect_operator, parse_type</local_deps>
+  </function>
+
+  <function>
+    <name>parse_type_alias</name>
+    <old_code>
+  defp parse_type_alias(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "type"),
+         {:ok, name, tokens} <- parse_identifier(tokens),
+         {:ok, vars, tokens} <- parse_many(&parse_identifier/1, tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "="),
+         tokens = skip_newlines(tokens),
+         {:ok, aliased, tokens} <- parse_type(tokens) do
+      {:ok,
+       %Ast.TypeAlias{
+         name: name.name,
+         type_vars: Enum.map(vars, & &1.name),
+         type: aliased
+       }, tokens}
+    else
+      other -> other
+    end
+  end
+    </old_code>
+    <description>
+Parses a type alias declaration of the form `type Name TypeVar1 TypeVar2 = AliasedType`.
+It expects the "type" keyword, parses the alias name and type variables, expects "=", skips newlines, and parses the aliased type expression.
+Returns `{:ok, %Ast.TypeAlias{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>expect_keyword, parse_identifier, parse_many, expect_operator, skip_newlines, parse_type</local_deps>
+  </function>
+
+  <function>
+    <name>parse_function_type</name>
+    <old_code>
+  defp parse_function_type(tokens) do
+    with {:ok, left, tokens} <- parse_type_term(tokens) do
+      case tokens do
+        [%Token{type: :operator, value: "->"} | rest] ->
+          with {:ok, right, rest} <- parse_function_type(rest) do
+            {:ok, %Ast.BinaryOp{op: "->", left: left, right: right}, rest}
+          end
+
+        _ ->
+          {:ok, left, tokens}
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses a function type expression, which is a sequence of type terms separated by "->", e.g., `A -> B -> C`.
+It parses the first term using `parse_type_term` and then recursively parses the rest if "->" is encountered. Function types are right-associative.
+Returns `{:ok, type_ast, remaining_tokens}`.
+    </description>
+    <local_deps>parse_type_term, parse_function_type</local_deps>
+  </function>
+
+  <function>
+    <name>parse_record_type</name>
+    <old_code>
+  # 2. Parser helpers
+  def parse_record_type([%Token{type: :delimiter, value: "{"} | rest]) do
+    with {:ok, fields, rest} <-
+           parse_separated(&parse_record_field/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, "}") do
+      {:ok, %Ast.RecordType{fields: fields}, rest}
+    end
+  end
+
+  def parse_record_type(_), do: {:error, "Expected record type"}
+    </old_code>
+    <description>
+Parses a record type expression of the form `{ field1 :: Type1, field2 :: Type2, ... }`.
+It expects an opening brace, parses a comma-separated list of record fields, and expects a closing brace.
+Returns `{:ok, %Ast.RecordType{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_record_field, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_record_field</name>
+    <old_code>
+  defp parse_record_field(tokens) do
+    with {:ok, label, tokens} <- parse_label(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "::"),
+         tokens = skip_newlines(tokens),
+         {:ok, t, tokens} <- parse_type(tokens) do
+      {:ok, {label.name, t}, tokens}
+    end
+  end
+    </old_code>
+    <description>
+Parses a single field within a record type expression, of the form `label :: Type`.
+It parses a label, expects "::", skips newlines, and parses the field's type.
+Returns `{:ok, {label_name, type_ast}, remaining_tokens}`.
+    </description>
+    <local_deps>parse_label, expect_operator, skip_newlines, parse_type</local_deps>
+  </function>
+
+  <function>
+    <name>parse_type_term</name>
+    <old_code>
+  defp parse_type_term(tokens) do
+    parse_any(
+      [
+        &parse_record_type/1,
+        &parse_list_type/1,
+        &parse_tuple_type/1,
+        &parse_basic_type/1
+      ],
+      tokens
+    )
+  end
+    </old_code>
+    <description>
+Parses a single "term" in a type expression, which can be a record type, list type, tuple type, or basic type (identifier or application).
+Uses `parse_any` to try multiple specific type term parsers.
+Returns `{:ok, type_ast, remaining_tokens}` or an error tuple if none succeed.
+    </description>
+    <local_deps>parse_any, parse_record_type, parse_list_type, parse_tuple_type, parse_basic_type</local_deps>
+  </function>
+
+  <function>
+    <name>parse_list_type</name>
+    <old_code>
+  defp parse_list_type(tokens) do
+    case tokens do
+      [%Token{type: :delimiter, value: "["} | rest] ->
+        with {:ok, element_type, rest} <- parse_type(rest),
+             {:ok, _, rest} <- expect_delimiter(rest, "]") do
+          {:ok, %Ast.FunctionCall{function: "[]", arguments: [element_type]}, rest}
+        end
+
+      _ ->
+        {:error, "Expected list type"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a list type expression of the form `[ElementType]`.
+It expects an opening bracket, parses the element type using `parse_type`, and expects a closing bracket.
+Returns `{:ok, %Ast.FunctionCall{} (representing the list type constructor), remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_type, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_tuple_type</name>
+    <old_code>
+  defp parse_tuple_type(tokens) do
+    case tokens do
+      [%Token{type: :delimiter, value: "("} | rest] ->
+        with {:ok, elements, rest} <-
+               parse_separated(&parse_type/1, &expect_delimiter(&1, ","), rest),
+             {:ok, _, rest} <- expect_delimiter(rest, ")") do
+          if length(elements) == 1 do
+            # Parentheses used only for grouping → return the inner type
+            {:ok, List.first(elements), rest}
+          else
+            # Real tuple type
+            {:ok, %Ast.Tuple{elements: elements}, rest}
+          end
+        end
+
+      _ ->
+        {:error, "Expected tuple type"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a tuple type expression of the form `(Type1, Type2, ...)`.
+It expects an opening parenthesis, parses a comma-separated list of types, and expects a closing parenthesis.
+Handles the case of a single element in parentheses as just grouping.
+Returns `{:ok, type_ast (either %Ast.Tuple{} or the inner type), remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_type, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_basic_type</name>
+    <old_code>
+  # Modified to fix the application type parsing
+  defp parse_basic_type(tokens) do
+    case parse_qualified_identifier(tokens) do
+      {:ok, qid, rest} ->
+        # Gather any type arguments that follow the qualified name
+        case parse_many(&parse_type_atom/1, rest) do
+          {:ok, [], ^rest} ->
+            {:ok, qid, rest}
+
+          {:ok, args, new_rest} ->
+            {:ok, %Ast.FunctionCall{function: qid, arguments: args}, new_rest}
+        end
+
+      # fall back to the old rules
+      _ ->
+    case tokens do
+      [%Token{type: :identifier, value: name} | rest] ->
+        # Parse type arguments if any
+        case parse_many(&parse_type_atom/1, rest) do
+          {:ok, [], ^rest} ->
+            # No arguments, just an identifier
+            {:ok, %Ast.Identifier{name: name}, rest}
+
+          {:ok, args, new_rest} ->
+            # Type with arguments
+            {:ok, %Ast.FunctionCall{function: name, arguments: args}, new_rest}
+        end
+
+      [%Token{type: :delimiter, value: "("} | rest] ->
+        with {:ok, type, rest} <- parse_type(rest),
+             {:ok, _, rest} <- expect_delimiter(rest, ")") do
+          {:ok, type, rest}
+        end
+
+      _ ->
+        {:error, "Expected basic type"}
+    end
+    end
+  end
+
+    </old_code>
+    <description>
+Parses a basic type expression, which can be a qualified identifier (potentially followed by type arguments for type application), a simple identifier (potentially followed by type arguments), or a parenthesized type expression.
+It first tries parsing a qualified identifier followed by type atoms. If that fails, it falls back to parsing a simple identifier followed by type atoms or a parenthesized type.
+Returns `{:ok, type_ast, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_qualified_identifier, parse_many, parse_type_atom, parse_identifier, parse_type, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_type_atom</name>
+    <old_code>
+  # Parse a type atom (used for application args)
+  def parse_type_atom(tokens) do
+    case tokens do
+      [%Token{type: :delimiter, value: "{"} | _] = toks ->
+        parse_record_type(toks)
+
+      [%Token{type: :identifier, value: name} | _] = toks ->
+        parse_qualified_identifier(toks)
+
+      [%Token{type: :delimiter, value: "("} | rest] ->
+        with {:ok, type, rest} <- parse_type(rest),
+             {:ok, _, rest} <- expect_delimiter(rest, ")") do
+          {:ok, type, rest}
+        end
+
+      [%Token{type: :delimiter, value: "["} | rest] ->
+        with {:ok, element_type, rest} <- parse_type(rest),
+             {:ok, _, rest} <- expect_delimiter(rest, "]") do
+          {:ok, %Ast.FunctionCall{function: "[]", arguments: [element_type]}, rest}
+        end
+
+      _ ->
+        {:error, "Expected type atom"}
+    end
+  end
+    </old_code>
+    <description>
+Parses an atomic type expression, used as arguments in type applications.
+An atom can be a record type, a qualified identifier, a parenthesized type, or a list type.
+It checks the leading token to dispatch to the appropriate parser.
+Returns `{:ok, type_atom_ast, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_record_type, parse_qualified_identifier, parse_type, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_function_declaration</name>
+    <old_code>
+  # ------------------------------------------------------------
+  #  Function declaration (no type signature)                   
+  # ------------------------------------------------------------
+  defp parse_function_declaration(tokens) do
+    with {:ok, name, tokens} <- parse_identifier(tokens),
+         {:ok, parameters, tokens} <- parse_function_parameters(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "="),
+         {:ok, body, tokens} <- parse_expression(tokens) do
+      {:ok,
+       %Ast.FunctionDeclaration{
+         name: name.name,
+         # ← keep full pattern nodes
+         parameters: parameters,
+         body: body,
+         type_signature: nil
+       }, tokens}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Parses a function declaration without a preceding type signature, of the form `name parameters = body`.
+It parses the function name (identifier), the parameters (simple patterns), expects "=", and parses the function body (expression).
+Returns `{:ok, %Ast.FunctionDeclaration{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_identifier, parse_function_parameters, expect_operator, parse_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_function_parameters</name>
+    <old_code>
+  defp parse_function_parameters(tokens), do: parse_many(&parse_simple_pattern/1, tokens)
+    </old_code>
+    <description>
+Parses the parameters part of a function declaration or lambda, which is a sequence of zero or more simple patterns.
+It uses `parse_many` to collect simple patterns.
+Returns `{:ok, list_of_patterns, remaining_tokens}`.
+    </description>
+    <local_deps>parse_many, parse_simple_pattern</local_deps>
+  </function>
+
+  <function>
+    <name>parse_simple_pattern</name>
+    <old_code>
+  # ------------------------------------------------------------
+  #  Simple pattern (for parameters)
+  # ------------------------------------------------------------
+  defp parse_simple_pattern(tokens) do
+    parse_any(
+      [
+        &parse_literal/1,
+        &parse_identifier/1,
+        &parse_tuple_pattern/1,
+        &parse_list_pattern/1,
+        fn
+          [%Token{type: :delimiter, value: "("} | rest] ->
+            with {:ok, pattern, rest} <- parse_pattern(rest),
+                 {:ok, _, rest} <- expect_delimiter(rest, ")") do
+              {:ok, pattern, rest}
+            end
+
+          _ ->
+            {:error, "Expected parenthesized pattern"}
+        end
+      ],
+      tokens
+    )
+  end
+    </old_code>
+    <description>
+Parses a "simple" pattern, which is a subset of full patterns allowed in function parameters or lambda arguments.
+Simple patterns include literals, identifiers, tuple patterns, list patterns, and parenthesized patterns.
+Uses `parse_any` to try multiple simple pattern parsers.
+Returns `{:ok, pattern_ast, remaining_tokens}` or an error tuple if none succeed.
+    </description>
+    <local_deps>parse_any, parse_literal, parse_identifier, parse_tuple_pattern, parse_list_pattern, parse_pattern, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_pattern</name>
+    <old_code>
+  # Pattern parsing for other contexts like case clauses
+  def parse_pattern(tokens) do
+    parse_any(
+      [
+        &parse_record_pattern/1,
+        &parse_wildcard_pattern/1,
+        &parse_cons_pattern/1,
+        &parse_constructor_pattern/1,
+        &parse_tuple_pattern/1,
+        &parse_list_pattern/1,
+        &parse_literal/1,
+        &parse_identifier/1,
+        fn tokens ->
+          case tokens do
+            [%Token{type: :delimiter, value: "("} | rest] ->
+              with {:ok, pattern, rest} <- parse_pattern(rest),
+                   {:ok, _, rest} <- expect_delimiter(rest, ")") do
+                {:ok, pattern, rest}
+              end
+
+            _ ->
+              {:error, "Expected parenthesized pattern"}
+          end
+        end
+      ],
+      tokens
+    )
+  end
+    </old_code>
+    <description>
+Parses a general pattern, used in case expressions, let bindings, etc.
+Includes record patterns, wildcard patterns, cons patterns, constructor patterns, tuple patterns, list patterns, literals, identifiers, and parenthesized patterns.
+Uses `parse_any` to try multiple pattern parsers.
+Returns `{:ok, pattern_ast, remaining_tokens}` or an error tuple if none succeed.
+    </description>
+    <local_deps>parse_any, parse_record_pattern, parse_wildcard_pattern, parse_cons_pattern, parse_constructor_pattern, parse_tuple_pattern, parse_list_pattern, parse_literal, parse_identifier, parse_pattern, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_constructor_pattern</name>
+    <old_code>
+  defp parse_constructor_pattern(tokens) do
+    with {:ok, constructor, tokens} <- parse_identifier(tokens),
+         {:ok, args, tokens} <- parse_many(&parse_pattern/1, tokens) do
+      if args == [] do
+        {:ok, %Ast.Identifier{name: constructor.name}, tokens}
+      else
+        {:ok,
+         %Ast.FunctionCall{
+           # <- wrap
+           function: %Ast.Identifier{name: constructor.name},
+           arguments: args
+         }, tokens}
+      end
+    else
+      {:error, _} -> {:error, "Expected constructor pattern"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a constructor pattern, which is an identifier possibly followed by one or more patterns as arguments, e.g., `Just value` or `Nil`.
+It parses an identifier and then uses `parse_many` to collect any following patterns as arguments.
+Returns `{:ok, pattern_ast (either %Ast.Identifier{} or %Ast.FunctionCall{}), remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_identifier, parse_many, parse_pattern</local_deps>
+  </function>
+
+  <function>
+    <name>parse_cons_pattern</name>
+    <old_code>
+  defp parse_cons_pattern(tokens) do
+    with {:ok, head, tokens} <- parse_simple_pattern(tokens),
+         # the ":" itself
+         {:ok, _, tokens} <- expect_colon(tokens),
+         {:ok, tail, tokens} <- parse_pattern(tokens) do
+      {:ok,
+       %Ast.FunctionCall{
+         function: %Ast.Identifier{name: ":"},
+         arguments: [head, tail]
+       }, tokens}
+    else
+      _ -> {:error, "Expected cons pattern"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a cons pattern for lists, of the form `Head : Tail`.
+It parses a simple pattern for the head, expects the ":" operator, and parses a general pattern for the tail.
+Returns `{:ok, %Ast.FunctionCall{} (representing the cons operator), remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_simple_pattern, expect_colon, parse_pattern</local_deps>
+  </function>
+
+  <function>
+    <name>expect_colon</name>
+    <old_code>
+  defp expect_colon([%Token{value: ":"} | rest]), do: {:ok, ":", rest}
+  defp expect_colon(_), do: {:error, "Expected ':'"}
+    </old_code>
+    <description>
+Expects and consumes a colon token.
+Returns `{:ok, ":", remaining_tokens}` if a colon is found, otherwise `{:error, reason}`.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+  <function>
+    <name>parse_wildcard_pattern</name>
+    <old_code>
+  def parse_wildcard_pattern([%Token{type: :identifier, value: "_"} | rest]),
+    do: {:ok, %Ast.Wildcard{}, rest}
+
+  def parse_wildcard_pattern(_), do: {:error, "Expected wildcard"}
+    </old_code>
+    <description>
+Parses a wildcard pattern, represented by the identifier "_".
+Returns `{:ok, %Ast.Wildcard{}, remaining_tokens}` if "_" is found, otherwise `{:error, reason}`.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+  <function>
+    <name>parse_tuple_pattern</name>
+    <old_code>
+  defp parse_tuple_pattern(tokens) do
+    case tokens do
+      [%Token{type: :delimiter, value: "("} | rest] ->
+        with {:ok, elements, rest} <-
+               parse_separated(&parse_pattern/1, &expect_delimiter(&1, ","), rest),
+             {:ok, _, rest} <- expect_delimiter(rest, ")") do
+          {:ok, %Ast.Tuple{elements: elements}, rest}
+        end
+
+      _ ->
+        {:error, "Expected tuple pattern"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a tuple pattern of the form `(pattern1, pattern2, ...)`.
+It expects an opening parenthesis, parses a comma-separated list of patterns, and expects a closing parenthesis.
+Returns `{:ok, %Ast.Tuple{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_pattern, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_list_pattern</name>
+    <old_code>
+  defp parse_list_pattern(tokens) do
+    case tokens do
+      [%Token{type: :delimiter, value: "["} | rest] ->
+        with {:ok, elements, rest} <-
+               parse_separated(&parse_pattern/1, &expect_delimiter(&1, ","), rest),
+             {:ok, _, rest} <- expect_delimiter(rest, "]") do
+          {:ok, %Ast.List{elements: elements}, rest}
+        end
+
+      [%Token{type: :delimiter, value: "["} | rest] ->
+        {:ok, %Ast.List{elements: []}, rest}
+
+      _ ->
+        {:error, "Expected list pattern"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a list pattern of the form `[pattern1, pattern2, ...]` or `[]`.
+It expects an opening bracket, parses an optional comma-separated list of patterns, and expects a closing bracket.
+Handles the empty list case specifically.
+Returns `{:ok, %Ast.List{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_pattern, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_lambda</name>
+    <old_code>
+  # Lambda expression parsing
+  defp parse_lambda(tokens) do
+    with {:ok, _, tokens} <- expect_operator(tokens, "\\"),
+         {:ok, parameters, tokens} <- parse_function_parameters(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "->"),
+         {:ok, body, tokens} <- parse_expression(tokens) do
+      {:ok, %Ast.Lambda{parameters: parameters, body: body}, tokens}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Parses a lambda expression of the form `\parameters -> body`.
+It expects the "\" operator, parses the parameters using `parse_function_parameters`, expects the "->" operator, and parses the body expression.
+Returns `{:ok, %Ast.Lambda{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>expect_operator, parse_function_parameters, parse_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_expression</name>
+    <old_code>
+  # Expression parsing
+  def parse_expression(tokens) do
+    parse_binary_expression(tokens)
+  end
+    </old_code>
+    <description>
+The main entry point for parsing general expressions.
+Currently, it simply dispatches to `parse_binary_expression`, which handles operator precedence and other top-level expression forms.
+Returns `{:ok, expression_ast, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_binary_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_let_expression</name>
+    <old_code>
+  # ------------------------------------------------------------
+  #  Let-expression  (layout-aware)
+  # ------------------------------------------------------------
+  def parse_let_expression(tokens) do
+    tokens = skip_newlines(tokens)
+
+    with {:ok, _, tokens} <- expect_keyword(tokens, "let"),
+         # gap A
+         tokens = skip_newlines(tokens),
+         {:ok, bindings, tokens} <- parse_many(&parse_binding/1, tokens),
+         # gap B
+         tokens = skip_newlines(tokens),
+         {:ok, _, tokens} <- expect_keyword(tokens, "in"),
+         # gap C
+         tokens = skip_newlines(tokens),
+         {:ok, body, tokens} <- parse_expression(tokens) do
+      {:ok, %Ast.LetBinding{bindings: bindings, body: body}, tokens}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Parses a let expression of the form `let bindings in body`.
+It expects the "let" keyword, skips newlines, parses one or more bindings using `parse_many` and `parse_binding`, expects the "in" keyword, skips newlines, and parses the body expression.
+Returns `{:ok, %Ast.LetBinding{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>skip_newlines, expect_keyword, parse_many, parse_binding, parse_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_binding</name>
+    <old_code>
+  # ------------------------------------------------------------
+  #  Single binding  (accepts its own leading newline)
+  # ------------------------------------------------------------
+  def parse_binding(tokens) do
+    tokens = skip_newlines(tokens)
+
+    with {:ok, pat, tokens} <- parse_pattern(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "="),
+         {:ok, rhs, tokens} <- parse_expression(tokens) do
+      {:ok, {pat, rhs}, tokens}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Parses a single binding within a let expression, of the form `pattern = expression`.
+It skips leading newlines, parses a pattern, expects "=", and parses the right-hand side expression.
+Returns `{:ok, {pattern_ast, expression_ast}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>skip_newlines, parse_pattern, expect_operator, parse_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_if_expression</name>
+    <old_code>
+  defp parse_if_expression(tokens) do
+    tokens = skip_newlines(tokens)
+
+    with {:ok, _, tokens} <- expect_keyword(tokens, "if"),
+         {:ok, condition, tokens} <- parse_expression(tokens),
+         {:ok, _, tokens} <- expect_keyword(tokens, "then"),
+         {:ok, then_branch, tokens} <- parse_expression(tokens),
+         {:ok, _, tokens} <- expect_keyword(tokens, "else"),
+         {:ok, else_branch, tokens} <- parse_expression(tokens) do
+      {:ok,
+       %Ast.IfExpression{
+         condition: condition,
+         then_branch: then_branch,
+         else_branch: else_branch
+       }, tokens}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Parses an if expression of the form `if condition then then_branch else else_branch`.
+It expects the keywords "if", "then", and "else", parsing the condition, then branch, and else branch expressions in between.
+Returns `{:ok, %Ast.IfExpression{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>skip_newlines, expect_keyword, parse_expression</local_deps>
+  </function>
+
+  <function>
+    <name>is_pattern_start?</name>
+    <old_code>
+  # Helper to check if a token sequence likely starts a new pattern
+  defp is_pattern_start?(tokens) do
+    case tokens do
+      # Empty tokens can't start a pattern
+      [] -> false
+      # Number literals often start patterns
+      [%Token{type: :number} | _] -> true
+      # Identifiers often start patterns
+      [%Token{type: :identifier} | _] -> true
+      # Delimiters like (, [, { can start patterns
+      [%Token{type: :delimiter, value: v} | _] when v in ["(", "[", "{"] -> true
+      # String and char literals can be patterns
+      [%Token{type: :string} | _] -> true
+      [%Token{type: :char} | _] -> true
+      # Keywords that might terminate a case expression
+      [%Token{type: :keyword, value: val} | _] when val in ["end", "in", "else", "then"] -> true
+      # Otherwise it's not a pattern start
+      _ -> false
+    end
+  end
+    </old_code>
+    <description>
+Checks if the given token list likely starts a pattern.
+This is a heuristic used in layout-aware parsing (like case bodies) to determine if a new line belongs to the current construct's body or starts a new clause/construct.
+It checks the type and value of the first token.
+Returns `true` or `false`.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+  <function>
+    <name>parse_case_expression</name>
+    <old_code>
+  def parse_case_expression(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "case"),
+         {:ok, expr, tokens} <- parse_expression(tokens),
+         # ⭐ new
+         tokens = skip_newlines(tokens),
+         {:ok, _, tokens} <- expect_keyword(tokens, "of") do
+      parse_case_clauses(tokens, expr, [])
+    else
+      other -> other
+    end
+  end
+    </old_code>
+    <description>
+Parses a case expression of the form `case expression of clauses`.
+It expects the keywords "case" and "of", parses the expression being matched, skips newlines, and then calls `parse_case_clauses` to parse the individual clauses.
+Returns `{:ok, %Ast.CaseExpression{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>expect_keyword, parse_expression, skip_newlines, parse_case_clauses</local_deps>
+  </function>
+
+  <function>
+    <name>parse_case_clauses</name>
+    <old_code>
+  # Parse case clauses recursively, collecting all clauses
+  def parse_case_clauses(tokens, expression, acc) do
+    # Try to parse a single case clause
+    case IO.inspect(parse_case_clause(tokens)) do
+      {:ok, clause, remaining} ->
+        # Successfully parsed a clause, continue with the remaining tokens
+        parse_case_clauses(remaining, expression, [clause | acc])
+
+      {:error, _} when acc != [] ->
+        # If parsing fails but we've already got some clauses, we're done
+        {:ok, %Ast.CaseExpression{expression: expression, cases: Enum.reverse(acc)}, tokens}
+
+      {:error, reason} ->
+        # If parsing fails and we have no clauses, propagate the error
+        {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Recursively parses all clauses within a case expression.
+It repeatedly calls `parse_case_clause` to parse one clause at a time, accumulating them until `parse_case_clause` fails.
+Returns `{:ok, %Ast.CaseExpression{}, remaining_tokens}` (where remaining tokens are after the last clause) or `{:error, reason}` if the very first clause fails.
+    </description>
+    <local_deps>parse_case_clause, parse_case_clauses</local_deps>
+  </function>
+
+  <function>
+    <name>split_until_newline</name>
+    <old_code>
+  defp split_until_newline(tokens) do
+    Enum.split_while(tokens, fn
+      %Token{type: :newline} -> false
+      _ -> true
+    end)
+  end
+    </old_code>
+    <description>
+Splits a token list into two parts: tokens before the first newline, and tokens starting from that newline.
+Returns `{tokens_before_newline, tokens_starting_from_newline}`.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+  <function>
+    <name>clause_start?</name>
+    <old_code>
+  def clause_start?(tokens) do
+    # "pattern  ->"  without consuming the tokens
+    with {:ok, _pat, rest} <- parse_pattern(tokens),
+         {_, _guard, rest} <- maybe_parse_guard(rest),
+         {:ok, _arrow, _} <- expect_operator(rest, "->") do
+      true
+    else
+      _ -> false
+    end
+  end
+    </old_code>
+    <description>
+Checks if the given token list starts with the pattern `pattern [ | guard ] ->`, without consuming the tokens.
+This is used in layout-aware parsing to detect the start of a new case clause.
+It attempts to parse a pattern, an optional guard, and expects "->".
+Returns `true` if the sequence matches, `false` otherwise.
+    </description>
+    <local_deps>parse_pattern, maybe_parse_guard, expect_operator</local_deps>
+  </function>
+
+  <function>
+    <name>take_body</name>
+    <old_code>
+  defp take_body(tokens, acc, indent) do
+    case tokens do
+      [] ->
+        {Enum.reverse(acc), []}
+
+      [%Token{type: :newline} = nl | rest] ->
+        rest = skip_newlines(rest)
+
+        clause_start = clause_start?(rest)
+
+        case rest do
+          # ❶ plain dedent – always end the body
+          [%Token{column: col} | _] = next when col < indent ->
+            {Enum.reverse(acc), next}
+
+          # ❷ same-column clause start – also end the body
+          [%Token{column: col} | _] = next when col == indent and clause_start ->
+            {Enum.reverse(acc), next}
+
+          # ❸ otherwise keep accumulating
+          _ ->
+            take_body(rest, [nl | acc], indent)
+        end
+
+      [tok | rest] ->
+        take_body(rest, [tok | acc], indent)
+    end
+  end
+    </old_code>
+    <description>
+Collects tokens that form the body of a case clause, based on indentation.
+It accumulates tokens until it encounters a newline followed by tokens that are dedented relative to the clause's starting indentation, or a newline followed by tokens at the same indentation that look like the start of a new clause.
+Returns `{body_tokens, remaining_tokens_after_body}`.
+    </description>
+    <local_deps>skip_newlines, clause_start?, take_body</local_deps>
+  </function>
+
+  <function>
+    <name>parse_case_clause</name>
+    <old_code>
+  def parse_case_clause(tokens) do
+    tokens = skip_newlines(tokens)
+
+    # Record the left-edge column of this clause’s pattern
+    case tokens do
+      [] ->
+        {:error, "no more to parse"}
+
+      [%Token{column: indent} | _] ->
+        with {:ok, pattern, tokens} <- IO.inspect(parse_pattern(tokens)),
+             {_, guard, tokens} <- IO.inspect(maybe_parse_guard(tokens)),
+             {:ok, _, tokens} <- expect_operator(tokens, "->") do
+          {body_tokens, rest} = take_body(tokens, [], indent)
+
+          with {:ok, body, remaining} <- parse_expression(body_tokens),
+               [] <- skip_newlines(remaining) do
+            {:ok, %Ast.CaseClause{pattern: pattern, guard: guard, body: body},
+             drop_newlines(rest)}
+          else
+            {:error, reason} -> {:error, reason}
+            _ -> {:error, "unexpected tokens after case-clause body"}
+          end
+        end
+    end
+  end
+    </old_code>
+    <description>
+Parses a single clause within a case expression, of the form `pattern [ | guard ] -> body`.
+It skips leading newlines, parses the pattern, optionally parses a guard using `maybe_parse_guard`, expects "->", collects the body tokens based on indentation using `take_body`, parses the body expression, and checks for leftover tokens after the body.
+Returns `{:ok, %Ast.CaseClause{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>skip_newlines, parse_pattern, maybe_parse_guard, expect_operator, take_body, parse_expression, drop_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>maybe_parse_guard</name>
+    <old_code>
+  def maybe_parse_guard([%Token{type: :operator, value: "|"} | rest] = all) do
+    case IO.inspect(parse_expression(rest)) do
+      {:ok, guard_ast, rest} ->
+        {:ok, guard_ast, rest}
+
+      {:error, _} ->
+        {:error, nil, all}
+    end
+  end
+
+  def maybe_parse_guard(tokens), do: {:error, nil, tokens}
+    </old_code>
+    <description>
+Attempts to parse an optional guard clause following a pattern, of the form `| expression`.
+If the tokens start with "|", it parses the following expression as the guard.
+Returns `{:ok, guard_expression_ast, remaining_tokens}` if a guard is found and parsed successfully, or `{:error, nil, original_tokens}` if no guard is present or parsing fails.
+    </description>
+    <local_deps>parse_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_do_block</name>
+    <old_code>
+  defp parse_do_block(tokens) do
+    with {:ok, _, tokens} <- expect_keyword(tokens, "do"),
+         {:ok, expressions, tokens} <- parse_many(&parse_do_expression/1, tokens),
+         remaining = skip_until_end(tokens) do
+      {:ok, %Ast.DoBlock{expressions: expressions}, remaining}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Parses a do-block expression of the form `do expressions end`.
+It expects the "do" keyword, parses one or more expressions within the block using `parse_many` and `parse_do_expression`, and then skips tokens until (and including) the "end" keyword using `skip_until_end`.
+Returns `{:ok, %Ast.DoBlock{}, remaining_tokens_after_end}` or an error tuple.
+    </description>
+    <local_deps>expect_keyword, parse_many, parse_do_expression, skip_until_end</local_deps>
+  </function>
+
+  <function>
+    <name>parse_do_expression</name>
+    <old_code>
+  defp parse_do_expression(tokens) do
+    parse_any(
+      [
+        fn tokens ->
+          with {:ok, _, tokens} <- expect_keyword(tokens, "let"),
+               {:ok, name, tokens} <- parse_identifier(tokens),
+               {:ok, _, tokens} <- expect_operator(tokens, "="),
+               {:ok, value, tokens} <- parse_expression(tokens) do
+            {:ok, {:let, name.name, value}, tokens}
+          else
+            {:error, _} -> {:error, "Expected let binding in do block"}
+          end
+        end,
+        fn tokens ->
+          with {:ok, expr, tokens} <- parse_expression(tokens),
+               {:ok, _, tokens} <- expect_operator(tokens, "<-"),
+               {:ok, value, tokens} <- parse_expression(tokens) do
+            {:ok, {:bind, expr, value}, tokens}
+          else
+            {:error, _} -> {:error, "Expected bind expression in do block"}
+          end
+        end,
+        fn tokens ->
+          with {:ok, expr, tokens} <- parse_expression(tokens) do
+            {:ok, {:expr, expr}, tokens}
+          else
+            {:error, _} -> {:error, "Expected expression in do block"}
+          end
+        end
+      ],
+      tokens
+    )
+  end
+    </old_code>
+    <description>
+Parses a single expression within a do-block.
+An expression in a do-block can be a simple expression, a let binding (`let name = value`), or a bind operation (`pattern <- value`).
+Uses `parse_any` to try these different forms.
+Returns `{:ok, representation_tuple, remaining_tokens}` or an error tuple if none succeed.
+    </description>
+    <local_deps>parse_any, expect_keyword, parse_identifier, expect_operator, parse_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_binary_expression</name>
+    <old_code>
+  # Binary expression parsing with precedence
+  # ------------------------------------------------------------
+  # 1. top-level binary-expression entry point
+  # ------------------------------------------------------------
+  defp parse_binary_expression(tokens) do
+    parse_any(
+      [
+        &parse_let_expression/1,
+        &parse_if_expression/1,
+        &parse_case_expression/1,
+        &parse_do_block/1,
+        &parse_lambda/1,
+        &parse_dollar_expression/1
+      ],
+      tokens
+    )
+  end
+    </old_code>
+    <description>
+The main entry point for parsing expressions, including those with binary operators and other top-level forms.
+It tries parsing various expression types like let, if, case, do-blocks, lambda, and dollar application, using `parse_any`.
+Returns `{:ok, expression_ast, remaining_tokens}` or an error tuple if none succeed.
+    </description>
+    <local_deps>parse_any, parse_let_expression, parse_if_expression, parse_case_expression, parse_do_block, parse_lambda, parse_dollar_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_dollar_expression</name>
+    <old_code>
+  defp parse_dollar_expression(tokens) do
+    # first parse *anything* tighter than '$'
+    with {:ok, left, tokens} <- parse_logical_expression(tokens) do
+      tokens = skip_newlines(tokens)
+
+      case tokens do
+        [%Token{type: :operator, value: "$"} | rest] ->
+          rest = skip_newlines(rest)
+
+          # right-associative: parse the *whole* rhs with the same rule
+          with {:ok, right, rest} <- parse_dollar_expression(rest) do
+            {:ok, %Ast.FunctionCall{function: left, arguments: [right]}, rest}
+          end
+
+        _ ->
+          {:ok, left, tokens}
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses expressions involving the right-associative "$" operator (function application).
+It parses the left side using `parse_logical_expression` (which has higher precedence) and then, if "$" is found, recursively parses the right side using itself.
+Returns `{:ok, expression_ast, remaining_tokens}`.
+    </description>
+    <local_deps>parse_logical_expression, skip_newlines, parse_dollar_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_logical_expression</name>
+    <old_code>
+  # ------------------------------------------------------------
+  # 2. logical  (&&  ||)  – lowest precedence
+  # ------------------------------------------------------------
+  defp parse_logical_expression(tokens) do
+    with {:ok, left, tokens} <- parse_comparison_expression(tokens) do
+      case tokens do
+        [%Token{type: :operator, value: op} | rest] when op in ["&&", "||"] ->
+          with {:ok, right, rest} <- parse_logical_expression(rest) do
+            {:ok, %Ast.BinaryOp{op: op, left: left, right: right}, rest}
+          end
+
+        _ ->
+          {:ok, left, tokens}
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses expressions involving logical operators "&&" and "||".
+It parses the left side using `parse_comparison_expression` (higher precedence) and then, if a logical operator is found, recursively parses the right side using itself. Logical operators are right-associative.
+Returns `{:ok, expression_ast, remaining_tokens}`.
+    </description>
+    <local_deps>parse_comparison_expression, parse_logical_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_comparison_expression</name>
+    <old_code>
+  # ------------------------------------------------------------
+  # 3. comparison (== != < <= > >=)
+  # ------------------------------------------------------------
+  defp parse_comparison_expression(tokens) do
+    tokens = skip_newlines(tokens)
+
+    with {:ok, left, tokens} <- parse_additive_expression(tokens) do
+      tokens = skip_newlines(tokens)
+
+      case tokens do
+        [%Token{type: :operator, value: op} | rest]
+        when op in ["==", "!=", "<", "<=", ">", ">="] ->
+          rest = skip_newlines(rest)
+
+          with {:ok, right, rest} <- parse_comparison_expression(rest) do
+            {:ok, %Ast.BinaryOp{op: op, left: left, right: right}, rest}
+          end
+
+        _ ->
+          {:ok, left, tokens}
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses expressions involving comparison operators "==", "!=", "<", "<=", ">", ">=".
+It parses the left side using `parse_additive_expression` (higher precedence) and then, if a comparison operator is found, recursively parses the right side using itself. Comparison operators are right-associative.
+Returns `{:ok, expression_ast, remaining_tokens}`.
+    </description>
+    <local_deps>skip_newlines, parse_additive_expression, parse_comparison_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_additive_expression</name>
+    <old_code>
+  # ------------------------------------------------------------
+  # 4. additive (+ -)
+  # ------------------------------------------------------------
+  defp parse_additive_expression(tokens) do
+    with {:ok, left, tokens} <- parse_multiplicative_expression(tokens) do
+      case tokens do
+        [%Token{type: :operator, value: op} | rest] when op in ["+", "-", "++", "<>"] ->
+          with {:ok, right, rest} <- parse_additive_expression(rest) do
+            {:ok, %Ast.BinaryOp{op: op, left: left, right: right}, rest}
+          end
+
+        _ ->
+          {:ok, left, tokens}
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses expressions involving additive operators "+", "-", "++", "<>".
+It parses the left side using `parse_multiplicative_expression` (higher precedence) and then, if an additive operator is found, recursively parses the right side using itself. Additive operators are right-associative.
+Returns `{:ok, expression_ast, remaining_tokens}`.
+    </description>
+    <local_deps>parse_multiplicative_expression, parse_additive_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_record_literal</name>
+    <old_code>
+  ── record literal  ─────────────────────────────────────────
+  defp parse_record_literal([%Token{type: :delimiter, value: "{"} | rest]) do
+    with {:ok, fields, rest} <-
+           parse_separated(&parse_record_field_expr/1, &expect_delimiter(&1, ","), rest),
+         {:ok, _, rest} <- expect_delimiter(rest, "}") do
+      {:ok, %Ast.RecordLiteral{fields: fields}, rest}
+    end
+  end
+
+  defp parse_record_literal(_), do: {:error, "Expected record literal"}
+    </old_code>
+    <description>
+Parses a record literal expression of the form `{ field1: value1, field2: value2, ... }`.
+It expects an opening brace, parses a comma-separated list of record fields using `parse_record_field_expr`, and expects a closing brace.
+Returns `{:ok, %Ast.RecordLiteral{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_record_field_expr, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_record_field_expr</name>
+    <old_code>
+  defp parse_record_field_expr(tokens) do
+    with {:ok, label, tokens} <- parse_identifier(tokens),
+         # uses the new ':'
+         {:ok, _, tokens} <- expect_delimiter(tokens, ":"),
+         tokens = skip_newlines(tokens),
+         {:ok, expr, tokens} <- parse_expression(tokens) do
+      {:ok, {label.name, expr}, tokens}
+    end
+  end
+    </old_code>
+    <description>
+Parses a single field within a record literal expression, of the form `label : expression`.
+It parses an identifier for the label, expects ":", skips newlines, and parses the field's value expression.
+Returns `{:ok, {label_name, expression_ast}, remaining_tokens}`.
+    </description>
+    <local_deps>parse_identifier, expect_delimiter, skip_newlines, parse_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_multiplicative_expression</name>
+    <old_code>
+  # 5. multiplicative (* /)
+  # ------------------------------------------------------------
+  defp parse_multiplicative_expression(tokens) do
+    # <- was parse_comparison_expression/1
+    with {:ok, left, tokens} <- parse_application(tokens) do
+      case tokens do
+        [%Token{type: :operator, value: op} | rest] when op in ["*", "/"] ->
+          with {:ok, right, rest} <- parse_multiplicative_expression(rest) do
+            {:ok, %Ast.BinaryOp{op: op, left: left, right: right}, rest}
+          end
+
+        [
+          %Token{type: :operator, value: "`"},
+          %Token{type: :identifier, value: fun},
+          %Token{type: :operator, value: "`"} | rest
+        ] ->
+          with {:ok, right, rest} <- parse_multiplicative_expression(rest) do
+            {:ok,
+             %Ast.FunctionCall{
+               function: %Ast.Identifier{name: fun},
+               arguments: [left, right]
+             }, rest}
+          end
+
+        _ ->
+          {:ok, left, tokens}
+      end
+    end
+  end
+    </old_code>
+    <description>
+Parses expressions involving multiplicative operators "*" and "/".
+It parses the left side using `parse_application` (higher precedence) and then, if a multiplicative operator is found, recursively parses the right side using itself. It also handles backtick-quoted operators (infix function calls). Multiplicative operators are right-associative.
+Returns `{:ok, expression_ast, remaining_tokens}`.
+    </description>
+    <local_deps>parse_application, parse_multiplicative_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_application</name>
+    <old_code>
+  # Function application parsing
+  defp parse_application([%Token{column: base} | _] = toks) do
+    with {:ok, fn_term, rest} <- parse_term(toks) do
+      {args, rest} = collect_application_args(rest, [], base)
+
+      case args do
+        [] -> {:ok, fn_term, rest}
+        _ -> {:ok, %Ast.FunctionCall{function: fn_term, arguments: args}, new_rest} # Should be rest here?
+      end
+    end
+  end
+
+  defp parse_application([]) do
+    {:error, :no_tokens_remaining}
+  end
+    </old_code>
+    <description>
+Parses function application expressions, where a function term is followed by one or more argument terms.
+It first parses the function term using `parse_term` and then uses `collect_application_args` to gather any following terms as arguments, respecting layout rules.
+Returns `{:ok, expression_ast (either the term itself or a %Ast.FunctionCall{}), remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_term, collect_application_args</local_deps>
+  </function>
+
+  <function>
+    <name>collect_application_args</name>
+    <old_code>
+  # Helper function to collect all arguments for function application
+  defp collect_application_args([%Token{type: :newline} | rest], acc, base) do
+    rest = skip_newlines(rest)
+
+    case rest do
+      [%Token{column: col} | _] when col > base ->
+        case parse_term(rest) do
+          {:ok, arg, rest2} -> collect_application_args(rest2, acc ++ [arg], base)
+          # something else - abort
+          {:error, _} -> {acc, rest}
+        end
+
+      _ ->
+        # dedent or EOF → application ends
+        {acc, rest}
+    end
+  end
+
+  defp collect_application_args(tokens, acc, base) do
+    case parse_term(tokens) do
+      {:ok, arg, rest} -> collect_application_args(rest, acc ++ [arg], base)
+      {:error, _} -> {acc, tokens}
+    end
+  end
+    </old_code>
+    <description>
+Collects argument terms for a function application, respecting layout rules (arguments must be indented relative to the function term's starting column).
+It recursively parses terms using `parse_term` as long as they are on the same line or indented on a new line relative to the base indentation.
+Returns `{list_of_argument_asts, remaining_tokens_after_arguments}`.
+    </description>
+    <local_deps>skip_newlines, parse_term, collect_application_args</local_deps>
+  </function>
+
+  <function>
+    <name>parse_term</name>
+    <old_code>
+  defp parse_term(tokens) do
+    parse_any(
+      [
+        &parse_record_literal/1,
+        &parse_literal/1,
+        &parse_list_literal/1,
+        &parse_list_comprehension/1,
+        &parse_tuple_literal/1,
+        &parse_qualified_identifier/1,
+        fn tokens ->
+          case tokens do
+            [%Token{type: :delimiter, value: "("} | rest] ->
+              with {:ok, expr, rest} <- parse_expression(rest),
+                   {:ok, _, rest} <- expect_delimiter(rest, ")") do
+                {:ok, expr, rest}
+              end
+
+            _ ->
+              {:error, "Expected parenthesized expression"}
+          end
+        end
+      ],
+      tokens
+    )
+  end
+    </old_code>
+    <description>
+Parses a basic term in an expression, which can be a record literal, literal, list literal, list comprehension, tuple literal, qualified identifier, or a parenthesized expression.
+Uses `parse_any` to try multiple term parsers.
+Returns `{:ok, term_ast, remaining_tokens}` or an error tuple if none succeed.
+    </description>
+    <local_deps>parse_any, parse_record_literal, parse_literal, parse_list_literal, parse_list_comprehension, parse_tuple_literal, parse_qualified_identifier, parse_expression, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_list_literal</name>
+    <old_code>
+  defp parse_list_literal(tokens) do
+    case tokens do
+      [%Token{type: :delimiter, value: "["} | rest] ->
+        with {:ok, elements, rest} <-
+               parse_separated(&parse_expression/1, &expect_delimiter(&1, ","), rest),
+             {:ok, _, rest} <- expect_delimiter(rest, "]") do
+          {:ok, %Ast.List{elements: elements}, rest}
+        end
+
+      _ ->
+        {:error, "Expected list literal"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a list literal expression of the form `[element1, element2, ...]`.
+It expects an opening bracket, parses a comma-separated list of expressions using `parse_separated` and `parse_expression`, and expects a closing bracket.
+Returns `{:ok, %Ast.List{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_expression, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_list_comprehension</name>
+    <old_code>
+  defp parse_list_comprehension(tokens) do
+    case tokens do
+      [%Token{type: :delimiter, value: "["} | rest] ->
+        with {:ok, expression, rest} <- parse_expression(rest),
+             {:ok, _, rest} <- expect_operator(rest, "|"),
+             {:ok, generators, rest} <-
+               parse_separated(&parse_generator/1, &expect_delimiter(&1, ","), rest),
+             {:ok, _, rest} <- expect_delimiter(rest, "]") do
+          {:ok,
+           %Ast.ListComprehension{expression: expression, generators: generators, guards: []},
+           rest}
+        end
+
+      _ ->
+        {:error, "Expected list comprehension"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a list comprehension expression of the form `[ expression | generator1, generator2, ... ]`.
+It expects an opening bracket, parses the result expression, expects "|", parses a comma-separated list of generators using `parse_separated` and `parse_generator`, and expects a closing bracket. Guards are currently not parsed.
+Returns `{:ok, %Ast.ListComprehension{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_expression, expect_operator, parse_separated, parse_generator, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_generator</name>
+    <old_code>
+  defp parse_generator(tokens) do
+    with {:ok, pattern, tokens} <- parse_pattern(tokens),
+         {:ok, _, tokens} <- expect_operator(tokens, "<-"),
+         {:ok, expression, tokens} <- parse_expression(tokens) do
+      {:ok, %Ast.Generator{pattern: pattern, expression: expression}, tokens}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+    </old_code>
+    <description>
+Parses a single generator within a list comprehension, of the form `pattern <- expression`.
+It parses a pattern, expects "<-", and parses the source expression.
+Returns `{:ok, %Ast.Generator{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_pattern, expect_operator, parse_expression</local_deps>
+  </function>
+
+  <function>
+    <name>parse_tuple_literal</name>
+    <old_code>
+  defp parse_tuple_literal(tokens) do
+    case tokens do
+      [%Token{type: :delimiter, value: "("} | rest] ->
+        with {:ok, elements, rest} <-
+               parse_separated(&parse_expression/1, &expect_delimiter(&1, ","), rest),
+             {:ok, _, rest} <- expect_delimiter(rest, ")") do
+          if length(elements) == 1 do
+            # Single element in parentheses is just grouping, not a tuple
+            {:ok, List.first(elements), rest}
+          else
+            {:ok, %Ast.Tuple{elements: elements}, rest}
+          end
+        end
+
+      _ ->
+        {:error, "Expected tuple literal"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a tuple literal expression of the form `(element1, element2, ...)`.
+It expects an opening parenthesis, parses a comma-separated list of expressions using `parse_separated` and `parse_expression`, and expects a closing parenthesis.
+Handles the case of a single element in parentheses as just grouping.
+Returns `{:ok, expression_ast (either %Ast.Tuple{} or the inner expression), remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_expression, expect_delimiter</local_deps>
+  </function>
+
+  <function>
+    <name>parse_literal</name>
+    <old_code>
+  defp parse_literal(tokens) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{type: :number, value: value} | rest] ->
+        {:ok, %Ast.Literal{type: :number, value: value}, rest}
+
+      [%Token{type: :string, value: value} | rest] ->
+        {:ok, %Ast.Literal{type: :string, value: value}, rest}
+
+      [%Token{type: :char, value: value} | rest] ->
+        {:ok, %Ast.Literal{type: :char, value: value}, rest}
+
+      _ ->
+        {:error, "Expected literal"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a literal value token (number, string, or char).
+It skips leading newlines and checks the type of the first token.
+Returns `{:ok, %Ast.Literal{}, remaining_tokens}` or an error tuple if the token is not a recognized literal type.
+    </description>
+    <local_deps>skip_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>parse_string_literal</name>
+    <old_code>
+  defp parse_string_literal(tokens) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{type: :string, value: value} | rest] -> {:ok, value, rest}
+      _ -> {:error, "Expected string literal"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a string literal token and returns its raw string value.
+It skips leading newlines and checks if the first token is a `:string`.
+Returns `{:ok, string_value, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>skip_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>parse_label</name>
+    <old_code>
+  defp parse_label(tokens) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{type: t, value: name} | rest] when t in [:identifier, :keyword] ->
+        {:ok, %Ast.Identifier{name: name}, rest}
+
+      _ ->
+        {:error, "Expected label"}
+    end
+  end
+    </old_code>
+    <description>
+Parses a label, which can be an identifier or a keyword.
+It skips leading newlines and checks if the first token is an `:identifier` or `:keyword`.
+Returns `{:ok, %Ast.Identifier{} (representing the label name), remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>skip_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>parse_identifier</name>
+    <old_code>
+  defp parse_identifier(tokens) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{type: :identifier, value: name} | rest] -> {:ok, %Ast.Identifier{name: name}, rest}
+      _ -> {:error, "Expected identifier"}
+    end
+  end
+    </old_code>
+    <description>
+Parses an identifier token.
+It skips leading newlines and checks if the first token is an `:identifier`.
+Returns `{:ok, %Ast.Identifier{}, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>skip_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>parse_qualified_identifier</name>
+    <old_code>
+  defp parse_qualified_identifier(tokens) do
+    parse_separated(&parse_identifier/1, &expect_operator(&1, "."), tokens)
+    |> case do
+      {:ok, parts, rest} when is_list(parts) ->
+        {:ok, %Ast.Identifier{name: Enum.map(parts, & &1.name) |> Enum.join(".")}, rest}
+
+      other ->
+        other
+    end
+  end
+    </old_code>
+    <description>
+Parses a qualified identifier, which is one or more identifiers separated by ".".
+It uses `parse_separated` with `parse_identifier` as the item parser and `expect_operator` for ".".
+Returns `{:ok, %Ast.Identifier{} (with the full qualified name string), remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps>parse_separated, parse_identifier, expect_operator</local_deps>
+  </function>
+
+  <function>
+    <name>parse_any</name>
+    <old_code>
+  # Helpers
+  defp parse_any(parsers, tokens) do
+    case parsers do
+      [] ->
+        {:error, "No parser succeeded #{inspect(List.first(tokens))}"}
+
+      [parser | rest] ->
+        case parser.(tokens) do
+          {:ok, result, remaining} -> {:ok, result, remaining}
+          {:error, _} -> parse_any(rest, tokens)
+        end
+    end
+  end
+    </old_code>
+    <description>
+Tries a list of parsers in order on the given tokens.
+It iterates through the provided parser functions and calls each one with the tokens.
+Returns the result of the first parser that returns an `{:ok, ...}` tuple, otherwise returns an `{:error, ...}` tuple if all parsers fail.
+    </description>
+    <local_deps>parse_any</local_deps>
+  </function>
+
+  <function>
+    <name>parse_many</name>
+    <old_code>
+  def parse_many(parser, tokens) do
+    parse_many(parser, tokens, [])
+  end
+
+  def parse_many(parser, tokens, acc) do
+    case parser.(tokens) do
+      {:ok, result, remaining} ->
+        parse_many(parser, remaining, [result | acc])
+
+      {:error, _} ->
+        {:ok, Enum.reverse(acc), tokens}
+    end
+  end
+    </old_code>
+    <description>
+Parses zero or more occurrences of an item using a given parser.
+It repeatedly calls the provided `parser` function on the remaining tokens, accumulating the results until the parser fails.
+Returns `{:ok, list_of_results, remaining_tokens}` (where remaining tokens are the ones where the parser first failed).
+    </description>
+    <local_deps>parse_many</local_deps>
+  </function>
+
+  <function>
+    <name>parse_separated</name>
+    <old_code>
+  defp parse_separated(parser, separator, tokens) do
+    with {:ok, first, tokens} <- parser.(tokens) do
+      parse_separated_rest(parser, separator, tokens, [first])
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp parse_separated_rest(parser, separator, tokens, acc) do
+    case separator.(tokens) do
+      {:ok, _, tokens} ->
+        case parser.(tokens) do
+          {:ok, item, rest} ->
+            parse_separated_rest(parser, separator, rest, [item | acc])
+
+          {:error, _} ->
+            {:error, "Expected item after separator"}
+        end
+
+      {:error, _} ->
+        # No more separators, we're done
+        {:ok, Enum.reverse(acc), tokens}
+    end
+  end
+    </old_code>
+    <description>
+Parses a list of items separated by a specific separator.
+It first parses the required first item using the `parser`, and then uses `parse_separated_rest` to parse subsequent items, expecting the `separator` parser between them.
+Returns `{:ok, list_of_items, remaining_tokens}` or an error tuple.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+  <function>
+    <name>expect_keyword</name>
+    <old_code>
+  def expect_keyword(tokens, expected) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{type: :keyword, value: ^expected} | rest] ->
+        {:ok, expected, rest}
+
+      _ ->
+        {:error, "Expected keyword '#{expected}'"}
+    end
+  end
+    </old_code>
+    <description>
+Expects and consumes a specific keyword token.
+It skips leading newlines and checks if the first token is a `:keyword` with the expected value.
+Returns `{:ok, keyword_value, remaining_tokens}` if the keyword is found, otherwise `{:error, reason}`.
+    </description>
+    <local_deps>skip_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>expect_operator</name>
+    <old_code>
+  defp expect_operator(tokens, expected) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{type: :operator, value: ^expected} | rest] ->
+        {:ok, expected, rest}
+
+      _ ->
+        {:error, "Expected operator '#{expected}'"}
+    end
+  end
+    </old_code>
+    <description>
+Expects and consumes a specific operator token.
+It skips leading newlines and checks if the first token is an `:operator` with the expected value.
+Returns `{:ok, operator_value, remaining_tokens}` if the operator is found, otherwise `{:error, reason}`.
+    </description>
+    <local_deps>skip_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>expect_delimiter</name>
+    <old_code>
+  defp expect_delimiter(tokens, expected) do
+    tokens = skip_newlines(tokens)
+
+    case tokens do
+      [%Token{type: :delimiter, value: ^expected} | rest] ->
+        {:ok, expected, rest}
+
+      _ ->
+        {:error, "Expected delimiter '#{expected}'"}
+    end
+  end
+    </old_code>
+    <description>
+Expects and consumes a specific delimiter token.
+It skips leading newlines and checks if the first token is a `:delimiter` with the expected value.
+Returns `{:ok, delimiter_value, remaining_tokens}` if the delimiter is found, otherwise `{:error, reason}`.
+    </description>
+    <local_deps>skip_newlines</local_deps>
+  </function>
+
+  <function>
+    <name>skip_until_end</name>
+    <old_code>
+  defp skip_until_end(tokens) do
+    case Enum.find_index(tokens, fn token -> token.type == :keyword and token.value == "end" end) do
+      nil -> tokens
+      idx -> Enum.drop(tokens, idx + 1)
+    end
+  end
+    </old_code>
+    <description>
+Skips tokens until (and including) an "end" keyword is found.
+It searches for the first token that is a `:keyword` with value `"end"`.
+If found, it returns the list of tokens *after* this "end" keyword.
+If not found, it returns the original list of tokens (meaning "end" was not present or already consumed).
+This is used in `parse_do_block` to consume the trailing "end" of a do-block.
+    </description>
+    <local_deps></local_deps>
+  </function>
+
+</module>

@@ -1,0 +1,15 @@
+<implementation>
+ <name>skip_newlines</name>
+ <code>
+skip_newlines :: Array Token -> Array Token
+skip_newlines tokens = elixirEnumDropWhile isNewline tokens
+ where
+  isNewline token = token.ttype == TTNewline
+ </code>
+ <tests>
+  <test>skip_newlines [] == []</test>
+  <test>skip_newlines [{ ttype: TTNewline, value: "", line: 1, column: 1, pos: 1 }] == []</test>
+  <test>skip_newlines [{ ttype: TTNewline, value: "", line: 1, column: 1, pos: 1 }, { ttype: TTNewline, value: "", line: 2, column: 1, pos: 2 }, { ttype: TTIdentifier, value: "a", line: 3, column: 1, pos: 3 }] == [{ ttype: TTIdentifier, value: "a", line: 3, column: 1, pos: 3 }]</test>
+  <test>skip_newlines [{ ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 1 }, { ttype: TTNewline, value: "", line: 2, column: 1, pos: 2 }] == [{ ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 1 }, { ttype: TTNewline, value: "", line: 2, column: 1, pos: 2 }]</test>
+ </tests>
+</implementation>

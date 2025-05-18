@@ -1,0 +1,17 @@
+<implementation>
+ <name>strip_newlines</name>
+ <code>
+strip_newlines :: Array Token -> Array Token
+strip_newlines tokens = elixirEnumReject isNewline tokens
+ where
+  isNewline token = case token.ttype of
+   TTNewline -> true
+   _ -> false
+ </code>
+ <tests>
+  <test>strip_newlines [] == []</test>
+  <test>strip_newlines [{ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 0}, {ttype: TTNewline, value: "\n", line: 1, column: 2, pos: 1}, {ttype: TTIdentifier, value: "b", line: 2, column: 1, pos: 2}] == [{ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 0}, {ttype: TTIdentifier, value: "b", line: 2, column: 1, pos: 2}]</test>
+  <test>strip_newlines [{ttype: TTNewline, value: "\n", line: 1, column: 1, pos: 0}, {ttype: TTNewline, value: "\n", line: 2, column: 1, pos: 1}] == []</test>
+  <test>strip_newlines [{ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 0}] == [{ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 0}]</test>
+ </tests>
+</implementation>

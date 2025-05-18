@@ -203,17 +203,17 @@ defmodule Nova.Compiler.TypeChecker do
 
   @spec infer_expr(Ast.t(), atom, IR.t(), Env.t()) :: infer_result
   # literals
-  defp infer_expr(%Ast.Literal{type: :number, value: v}, _ns, _reg, env),
+  def infer_expr(%Ast.Literal{type: :number, value: v}, _ns, _reg, env),
     do: {:ok, %TypedAst.Literal{value: v, type: Types.t_int()}, Subst.new(), env}
 
-  defp infer_expr(%Ast.Literal{type: :string, value: v}, _ns, _reg, env),
+  def infer_expr(%Ast.Literal{type: :string, value: v}, _ns, _reg, env),
     do: {:ok, %TypedAst.Literal{value: v, type: Types.t_string()}, Subst.new(), env}
 
-  defp infer_expr(%Ast.Literal{type: :bool, value: v}, _ns, _reg, env),
+  def infer_expr(%Ast.Literal{type: :bool, value: v}, _ns, _reg, env),
     do: {:ok, %TypedAst.Literal{value: v, type: Types.t_bool()}, Subst.new(), env}
 
   # identifier lookup
-  defp infer_expr(%Ast.Identifier{name: id}, ns, reg, env) do
+  def infer_expr(%Ast.Identifier{name: id}, ns, reg, env) do
     with {:ok, sch} <- lookup(id, ns, reg, env),
          {t, env2} <- instantiate(sch, env) do
       {:ok, %TypedAst.Identifier{name: id, type: t}, Subst.new(), env2}
@@ -223,7 +223,7 @@ defmodule Nova.Compiler.TypeChecker do
   end
 
   # lambda
-  defp infer_expr(%Ast.Lambda{parameters: params, body: body}, ns, reg, env) do
+  def infer_expr(%Ast.Lambda{parameters: params, body: body}, ns, reg, env) do
     {param_tys, env1} = allocate_params(params, env)
 
     with {:ok, body_node, s_body, env2} <- infer_expr(body, ns, reg, env1) do
@@ -241,7 +241,7 @@ defmodule Nova.Compiler.TypeChecker do
   end
 
   # application
-  defp infer_expr(%Ast.FunctionCall{function: fn_ast, arguments: args}, ns, reg, env) do
+  def infer_expr(%Ast.FunctionCall{function: fn_ast, arguments: args}, ns, reg, env) do
     with {:ok, fn_node, s_fn, env1} <- infer_expr(fn_ast, ns, reg, env),
          {:ok, arg_nodes, s_args, env2, arg_tys} <- infer_args(args, ns, reg, env1),
          {res_tv, env3} <- Env.fresh_var(env2, "res"),
@@ -256,12 +256,12 @@ defmodule Nova.Compiler.TypeChecker do
   end
 
   # if
-  defp infer_expr(
-         %Ast.IfExpression{condition: c, then_branch: t_b, else_branch: e_b},
-         ns,
-         reg,
-         env
-       ) do
+  def infer_expr(
+        %Ast.IfExpression{condition: c, then_branch: t_b, else_branch: e_b},
+        ns,
+        reg,
+        env
+      ) do
     with {:ok, cond_node, s_c, env1} <- infer_expr(c, ns, reg, env),
          {:ok, _} <- Unify.unify(cond_node.type, Types.t_bool()),
          {:ok, t_node, s_t, env2} <- infer_expr(t_b, ns, reg, env1),
@@ -283,7 +283,7 @@ defmodule Nova.Compiler.TypeChecker do
   end
 
   # fallback
-  defp infer_expr(expr, _ns, _reg, _env),
+  def infer_expr(expr, _ns, _reg, _env),
     do: {:error, "Expression not supported: #{expr.__struct__}"}
 
   # ---------------------------------------------------------------------------

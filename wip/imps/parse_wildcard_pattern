@@ -1,0 +1,19 @@
+<implementation>
+ <name>parse_wildcard_pattern</name>
+ <code>
+parse_wildcard_pattern :: Array Token -> ParseOutput Pattern
+parse_wildcard_pattern tokens =
+  case tokens of
+    [] -> Error "Expected wildcard pattern, but found end of input"
+    t : rest ->
+      if t.ttype == TTIdentifier && t.value == "_" then
+        Ok PWildcard rest
+      else
+        Error "Expected wildcard pattern ('_')"
+ </code>
+ <tests>
+  <test>parse_wildcard_pattern [{ttype: TTIdentifier, value: "_", line: 1, column: 1, pos: 0}] == Ok PWildcard []</test>
+  <test>parse_wildcard_pattern [{ttype: TTIdentifier, value: "x", line: 1, column: 1, pos: 0}] == Error "Expected wildcard pattern ('_')"</test>
+  <test>parse_wildcard_pattern [] == Error "Expected wildcard pattern, but found end of input"</test>
+ </tests>
+</implementation>

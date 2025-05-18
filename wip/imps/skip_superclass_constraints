@@ -1,0 +1,64 @@
+<implementation>
+ <name>skip_superclass_constraints</name>
+ <code>
+skip_superclass_constraints :: Array Token -> Tuple (Array Token) (Array Token)
+skip_superclass_constraints tokens =
+  let
+    tokens' = skip_newlines tokens
+
+    is_not_constraint_separator token =
+      case token.ttype of
+        TTOperator -> token.value /= "<="
+        _ -> true
+
+    Tuple before after_ = elixirEnumSplitWhile is_not_constraint_separator tokens'
+  in
+    case after_ of
+      [] -> Tuple tokens [] -- No "<=" found, return original tokens and empty constraints
+      h : rest ->
+        case h.ttype of
+          TTOperator ->
+            if h.value == "<="
+              then Tuple rest before -- Found "<=", return tokens after it and tokens before it
+              else Tuple tokens [] -- Should not happen based on split_while, but handle defensively
+          _ -> Tuple tokens [] -- Should not happen based on split_while
+ where
+  skip_newlines :: Array Token -> Array Token
+  skip_newlines = elixirEnumReject (\t -> t.ttype == TTNewline)
+ </code>
+ <tests>
+  <test>
+   let
+    t1 = { ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1 }
+    t2 = { ttype: TTDelimiter, value: ",", line: 1, column: 5, pos: 5 }
+    t3 = { ttype: TTIdentifier, value: "Eq", line: 1, column: 7, pos: 7 }
+    t4 = { ttype: TTOperator, value: "<=", line: 1, column: 10, pos: 10 }
+    t5 = { ttype: TTIdentifier, value: "class", line: 1, column: 13, pos: 13 }
+    tokens = Array [t1, t2, t3, t4, t5]
+    Tuple rest constraints = skip_superclass_constraints tokens
+   in
+    rest == Array [t5] && constraints == Array [t1, t2, t3]
+  </test>
+  <test>
+   let
+    t1 = { ttype: TTIdentifier, value: "class", line: 1, column: 1, pos: 1 }
+    t2 = { ttype: TTIdentifier, value: "MyClass", line: 1, column: 7, pos: 7 }
+    tokens = Array [t1, t2]
+    Tuple rest constraints = skip_superclass_constraints tokens
+   in
+    rest == Array [t1, t2] && constraints == Array []
+  </test>
+  <test>
+   let
+    t1 = { ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1 }
+    t2 = { ttype: TTNewline, value: "\n", line: 1, column: 5, pos: 5 }
+    t3 = { ttype: TTIdentifier, value: "Eq", line: 2, column: 1, pos: 7 }
+    t4 = { ttype: TTOperator, value: "<=", line: 2, column: 4, pos: 10 }
+    t5 = { ttype: TTIdentifier, value: "class", line: 2, column: 7, pos: 13 }
+    tokens = Array [t1, t2, t3, t4, t5]
+    Tuple rest constraints = skip_superclass_constraints tokens
+   in
+    rest == Array [t5] && constraints == Array [t1, t3]
+  </test>
+ </tests>
+</implementation>

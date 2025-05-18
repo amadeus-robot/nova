@@ -1,0 +1,66 @@
+<implementation>
+ <name>split_type_and_rest</name>
+ <code>
+split_type_and_rest :: Array Token -> String -> Tuple (Array Token) (Array Token)
+split_type_and_rest tokens name =
+  elixirEnumSplitWhile (\token ->
+    case token.ttype of
+      TTIdentifier -> token.value /= name
+      _ -> true
+  ) tokens
+ </code>
+ <tests>
+  <test>
+   let
+     tokens =
+       [ { ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 1 }
+       , { ttype: TTOperator, value: "+", line: 1, column: 3, pos: 3 }
+       , { ttype: TTIdentifier, value: "b", line: 1, column: 5, pos: 5 }
+       , { ttype: TTOperator, value: "::", line: 1, column: 7, pos: 7 }
+       , { ttype: TTIdentifier, value: "add", line: 1, column: 10, pos: 10 }
+       , { ttype: TTOperator, value: "=", line: 1, column: 14, pos: 14 }
+       , { ttype: TTIdentifier, value: "a", line: 1, column: 16, pos: 16 }
+       , { ttype: TTOperator, value: "+", line: 1, column: 18, pos: 18 }
+       , { ttype: TTIdentifier, value: "b", line: 1, column: 20, pos: 20 }
+       ]
+     name = "add"
+     expectedBefore =
+       [ { ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 1 }
+       , { ttype: TTOperator, value: "+", line: 1, column: 3, pos: 3 }
+       , { ttype: TTIdentifier, value: "b", line: 1, column: 5, pos: 5 }
+       , { ttype: TTOperator, value: "::", line: 1, column: 7, pos: 7 }
+       ]
+     expectedAfter =
+       [ { ttype: TTIdentifier, value: "add", line: 1, column: 10, pos: 10 }
+       , { ttype: TTOperator, value: "=", line: 1, column: 14, pos: 14 }
+       , { ttype: TTIdentifier, value: "a", line: 1, column: 16, pos: 16 }
+       , { ttype: TTOperator, value: "+", line: 1, column: 18, pos: 18 }
+       , { ttype: TTIdentifier, value: "b", line: 1, column: 20, pos: 20 }
+       ]
+     Tuple before after = split_type_and_rest tokens name
+   in before == expectedBefore && after == expectedAfter
+  </test>
+  <test>
+   let
+     tokens =
+       [ { ttype: TTIdentifier, value: "x", line: 1, column: 1, pos: 1 }
+       , { ttype: TTOperator, value: "::", line: 1, column: 3, pos: 3 }
+       , { ttype: TTIdentifier, value: "Int", line: 1, column: 6, pos: 6 }
+       ]
+     name = "y" -- Name not found
+     expectedBefore = tokens
+     expectedAfter = []
+     Tuple before after = split_type_and_rest tokens name
+   in before == expectedBefore && after == expectedAfter
+  </test>
+  <test>
+   let
+     tokens = []
+     name = "test"
+     expectedBefore = []
+     expectedAfter = []
+     Tuple before after = split_type_and_rest tokens name
+   in before == expectedBefore && after == expectedAfter
+  </test>
+ </tests>
+</implementation>
