@@ -261,7 +261,7 @@ defmodule Nova.Compiler.Parser do
   #                         { head : tok }  |  { head = tok }
   # ------------------------------------------------------------------
   defp parse_record_field_pattern(tokens) do
-    with {:ok, lbl, tokens} <- IO.inspect(parse_label(tokens)) do
+    with {:ok, lbl, tokens} <- parse_label(tokens) do
       cond do
         # ──────────────── `:` delimiter ────────────────
         match?({:ok, _, _}, expect_delimiter(tokens, ":")) ->
@@ -1048,7 +1048,7 @@ defmodule Nova.Compiler.Parser do
   # Parse case clauses recursively, collecting all clauses
   def parse_case_clauses(tokens, expression, acc) do
     # Try to parse a single case clause
-    case IO.inspect(parse_case_clause(tokens)) do
+    case parse_case_clause(tokens) do
       {:ok, clause, remaining} ->
         # Successfully parsed a clause, continue with the remaining tokens
         parse_case_clauses(remaining, expression, [clause | acc])
@@ -1119,8 +1119,8 @@ defmodule Nova.Compiler.Parser do
         {:error, "no more to parse"}
 
       [%Token{column: indent} | _] ->
-        with {:ok, pattern, tokens} <- IO.inspect(parse_pattern(tokens)),
-             {_, guard, tokens} <- IO.inspect(maybe_parse_guard(tokens)),
+        with {:ok, pattern, tokens} <- parse_pattern(tokens),
+             {_, guard, tokens} <- maybe_parse_guard(tokens),
              {:ok, _, tokens} <- expect_operator(tokens, "->") do
           {body_tokens, rest} = take_body(tokens, [], indent)
 
@@ -1137,7 +1137,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   def maybe_parse_guard([%Token{type: :operator, value: "|"} | rest] = all) do
-    case IO.inspect(parse_expression(rest)) do
+    case parse_expression(rest) do
       {:ok, guard_ast, rest} ->
         {:ok, guard_ast, rest}
 
