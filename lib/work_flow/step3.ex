@@ -11,13 +11,15 @@ defmodule WorkFlow.Step3 do
 
       try do
         res =
-          Nova.Compiler.Tokenizer.tokenize(p.code) |> Nova.Compiler.Parser.parse_declarations()
+          Nova.Compiler.Tokenizer.tokenize(IO.inspect(p.code)) |> Nova.Compiler.Parser.parse_declarations()
 
         test =
           Enum.map(p.tests, fn test ->
-            res =
+            res2 =
               Nova.Compiler.Tokenizer.tokenize(test)
               |> Nova.Compiler.Parser.parse_expression()
+
+            #IO.inspect(res)
           end)
 
         case res do
@@ -36,7 +38,7 @@ defmodule WorkFlow.Step3 do
             {:error, x}
         end
       catch
-        a, b -> {:crash, x, a, b}
+        a, b -> {:crash, x, a, b, __STACKTRACE__}
       end
     end)
   end
