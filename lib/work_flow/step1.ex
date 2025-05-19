@@ -133,10 +133,12 @@ defmodule WorkFlow.Step1 do
             bar = 1 
         ```
 
+      don't use ; to merge case clauses, use one line per case clause
+
 
     <defined_imports>
-    foreign import unsafeInspect :: forall a. a -> String -- For debugging, maps to Elixir's inspect
-
+    -- For debugging, maps to Elixir's inspect
+    foreign import unsafeInspect :: forall a. a -> String 
     foreign import elixirEnumDropWhile :: forall a. (a -> Boolean) -> Array a -> Array a
     foreign import elixirEnumReject :: forall a. (a -> Boolean) -> Array a -> Array a
     foreign import elixirEnumReverse :: forall a. Array a -> Array a
@@ -147,10 +149,12 @@ defmodule WorkFlow.Step1 do
     foreign import elixirEnumSplitWhile :: forall a. (a -> Boolean) -> Array a -> Tuple (Array a) (Array a)
     foreign import elixirEnumFindIndex :: forall a. (a -> Boolean) -> Array a -> Maybe Int
     foreign import elixirEnumDrop :: forall a. Int -> Array a -> Array a
-    foreign import elixirListFirst :: forall a. Array a -> Maybe a -- Elixir List.first/1 -> nil | term
-    foreign import elixirHd :: forall a. Array a -> Maybe a        -- Erlang hd/1 (on non-empty) or Elixir hd/1
-    foreign import elixirLength :: forall a. Array a -> Int       -- Elixir length/1
-    foreign import elixirEnumJoin :: Array String -> String -> String -- Elixir Enum.join/2
+    -- Elixir List.first/1 -> nil | term
+    foreign import elixirListFirst :: forall a. Array a -> Maybe a 
+    -- Elixir length/1
+    foreign import elixirLength :: forall a. Array a -> Int       
+    -- Elixir Enum.join/2
+    foreign import elixirEnumJoin :: Array String -> String -> String 
     </defined_imports>
 
     <types>

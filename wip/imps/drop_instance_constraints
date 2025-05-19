@@ -1,34 +1,35 @@
+```
 <implementation>
  <name>drop_instance_constraints</name>
  <code>
 drop_instance_constraints :: Array Token -> Array Token
 drop_instance_constraints tokens =
   let
-    Tuple _ after = elixirEnumSplitWhile (\t -> not (t.ttype == TTOperator && t.value == "<=")) tokens
+    is_not_constraint_delimiter token =
+      case token.ttype of
+        TTOperator -> token.value /= "<="
+        _ -> true
+
+    splitResult = elixirEnumSplitWhile is_not_constraint_delimiter tokens
   in
-  case after of
-    [] -> tokens
-    h : rest ->
-      if h.ttype == TTOperator && h.value == "<=" then
-        rest
-      else
-        tokens
+    case splitResult of
+      Tuple _ after ->
+        case after of
+          h : t ->
+            case h.ttype of
+              TTOperator ->
+                if h.value == "<=" then
+                  t
+                else
+                  tokens
+              _ -> tokens
+          [] -> tokens
  </code>
  <tests>
-  <test>
-drop_instance_constraints [] == []
-  </test>
-  <test>
-drop_instance_constraints [{ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1}, {ttype: TTOperator, value: "<=", line: 1, column: 6, pos: 6}, {ttype: TTIdentifier, value: "Int", line: 1, column: 9, pos: 9}] == [{ttype: TTIdentifier, value: "Int", line: 1, column: 9, pos: 9}]
-  </test>
-  <test>
-drop_instance_constraints [{ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1}, {ttype: TTOperator, value: "=>", line: 1, column: 6, pos: 6}, {ttype: TTIdentifier, value: "Int", line: 1, column: 9, pos: 9}] == [{ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1}, {ttype: TTOperator, value: "=>", line: 1, column: 6, pos: 6}, {ttype: TTIdentifier, value: "Int", line: 1, column: 9, pos: 9}]
-  </test>
-  <test>
-drop_instance_constraints [{ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1}, {ttype: TTDelimiter, value: ",", line: 1, column: 5, pos: 5}, {ttype: TTIdentifier, value: "Eq", line: 1, column: 7, pos: 7}, {ttype: TTOperator, value: "<=", line: 1, column: 10, pos: 10}, {ttype: TTIdentifier, value: "Int", line: 1, column: 13, pos: 13}] == [{ttype: TTIdentifier, value: "Int", line: 1, column: 13, pos: 13}]
-  </test>
-  <test>
-drop_instance_constraints [{ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1}, {ttype: TTDelimiter, value: ",", line: 1, column: 5, pos: 5}, {ttype: TTIdentifier, value: "Eq", line: 1, column: 7, pos: 7}] == [{ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1}, {ttype: TTDelimiter, value: ",", line: 1, column: 5, pos: 5}, {ttype: TTIdentifier, value: "Eq", line: 1, column: 7, pos: 7}]
-  </test>
+  <test>drop_instance_constraints (Array.fromFoldable [{ ttype: TTIdentifier, value: "C1", line: 1, column: 1, pos: 0 }, { ttype: TTDelimiter, value: ",", line: 1, column: 3, pos: 2 }, { ttype: TTIdentifier, value: "C2", line: 1, column: 5, pos: 4 }, { ttype: TTOperator, value: "<=", line: 1, column: 8, pos: 7 }, { ttype: TTIdentifier, value: "MyClass", line: 1, column: 11, pos: 10 }]) == Array.fromFoldable [{ ttype: TTIdentifier, value: "MyClass", line: 1, column: 11, pos: 10 }]</test>
+  <test>drop_instance_constraints (Array.fromFoldable [{ ttype: TTIdentifier, value: "MyClass", line: 1, column: 1, pos: 0 }, { ttype: TTIdentifier, value: "Int", line: 1, column: 9, pos: 8 }]) == Array.fromFoldable [{ ttype: TTIdentifier, value: "MyClass", line: 1, column: 1, pos: 0 }, { ttype: TTIdentifier, value: "Int", line: 1, column: 9, pos: 8 }]</test>
+  <test>drop_instance_constraints (Array.fromFoldable [{ ttype: TTOperator, value: "<=", line: 1, column: 1, pos: 0 }, { ttype: TTIdentifier, value: "MyClass", line: 1, column: 4, pos: 3 }]) == Array.fromFoldable [{ ttype: TTIdentifier, value: "MyClass", line: 1, column: 4, pos: 3 }]</test>
+  <test>drop_instance_constraints (Array.fromFoldable []) == Array.fromFoldable []</test>
  </tests>
 </implementation>
+```

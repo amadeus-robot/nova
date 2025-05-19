@@ -134,6 +134,17 @@ defmodule Nova.Compiler.CodeGen do
   defp compile_expr(%Ast.Literal{type: :string, value: v}), do: inspect(v)
   defp compile_expr(%Ast.Literal{type: :char, value: v}), do: "?#{v}"
 
+  defp compile_expr(%Ast.RecordLiteral{fields: fields}) do
+    pairs =
+      fields
+      |> Enum.map(fn {label, expr} ->
+        "#{sanitize_name(label)}: #{compile_expr(expr)}"
+      end)
+      |> Enum.join(", ")
+
+    "%{#{pairs}}"
+  end
+
   # Identifier
   defp compile_expr(%Ast.Identifier{name: n}), do: sanitize_name(n)
 
@@ -266,8 +277,14 @@ defmodule Nova.Compiler.CodeGen do
   # Fallback
   defp compile_expr(other), do: raise("Unsupported expression in codegen: #{inspect(other)}")
 
-  defp count_params(%Ast.BinaryOp{op: "->", right: r}), do: 1 + count_params(r)
-  defp count_params(_), do: 0
+  def count_params(%Nova.Compiler.Ast.ForAllType{
+        vars: _,
+        type: t
+      }),
+      do: count_params(t)
+
+  def count_params(%Ast.BinaryOp{op: "->", right: r}), do: 1 + count_params(r)
+  def count_params(_), do: 0
 
   # Detect whether an expression is statically typed as String (literal or inferred)
   defp string_typed?(%Ast.Literal{type: :string}), do: true
@@ -278,15 +295,26 @@ defmodule Nova.Compiler.CodeGen do
   defp string_typed?(%{inferred_type: %{name: :String}}), do: true
   defp string_typed?(_), do: false
 
-  # -- foreign import -------------------------------------------------
-  defp gen_foreign(%Ast.ForeignImport{
-         module: mod,
-         function: fun,
-         alias: name,
-         type_signature: ts
-       }) do
+  def gen_foreign(%Ast.ForeignImport{
+        module: mod,
+        function: fun,
+        alias: name,
+        type_signature: ts
+      }) do
     arity = count_params(ts.type)
-    args = for i <- 1..arity, do: "arg#{i}"
+
+    args =
+      case arity do
+        a when a < 1 ->
+          []
+
+        a when a == 1 ->
+          ["arg1"]
+
+        _ ->
+          for i <- 1..arity, do: "arg#{i}"
+      end
+
     sane_name = sanitize_name(name)
 
     """

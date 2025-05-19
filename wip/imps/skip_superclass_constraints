@@ -6,59 +6,29 @@ skip_superclass_constraints tokens =
   let
     tokens' = skip_newlines tokens
 
-    is_not_constraint_separator token =
+    is_not_le token =
       case token.ttype of
         TTOperator -> token.value /= "<="
         _ -> true
 
-    Tuple before after_ = elixirEnumSplitWhile is_not_constraint_separator tokens'
+    Tuple before after = elixirEnumSplitWhile is_not_le tokens'
+
+    handle_after after' =
+      case after' of
+        [] -> Tuple tokens []
+        h : rest ->
+          case h.ttype of
+            TTOperator ->
+              if h.value == "<="
+                then Tuple rest before
+                else Tuple tokens []
+            _ -> Tuple tokens []
   in
-    case after_ of
-      [] -> Tuple tokens [] -- No "<=" found, return original tokens and empty constraints
-      h : rest ->
-        case h.ttype of
-          TTOperator ->
-            if h.value == "<="
-              then Tuple rest before -- Found "<=", return tokens after it and tokens before it
-              else Tuple tokens [] -- Should not happen based on split_while, but handle defensively
-          _ -> Tuple tokens [] -- Should not happen based on split_while
- where
-  skip_newlines :: Array Token -> Array Token
-  skip_newlines = elixirEnumReject (\t -> t.ttype == TTNewline)
+    handle_after after
  </code>
  <tests>
-  <test>
-   let
-    t1 = { ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1 }
-    t2 = { ttype: TTDelimiter, value: ",", line: 1, column: 5, pos: 5 }
-    t3 = { ttype: TTIdentifier, value: "Eq", line: 1, column: 7, pos: 7 }
-    t4 = { ttype: TTOperator, value: "<=", line: 1, column: 10, pos: 10 }
-    t5 = { ttype: TTIdentifier, value: "class", line: 1, column: 13, pos: 13 }
-    tokens = Array [t1, t2, t3, t4, t5]
-    Tuple rest constraints = skip_superclass_constraints tokens
-   in
-    rest == Array [t5] && constraints == Array [t1, t2, t3]
-  </test>
-  <test>
-   let
-    t1 = { ttype: TTIdentifier, value: "class", line: 1, column: 1, pos: 1 }
-    t2 = { ttype: TTIdentifier, value: "MyClass", line: 1, column: 7, pos: 7 }
-    tokens = Array [t1, t2]
-    Tuple rest constraints = skip_superclass_constraints tokens
-   in
-    rest == Array [t1, t2] && constraints == Array []
-  </test>
-  <test>
-   let
-    t1 = { ttype: TTIdentifier, value: "Show", line: 1, column: 1, pos: 1 }
-    t2 = { ttype: TTNewline, value: "\n", line: 1, column: 5, pos: 5 }
-    t3 = { ttype: TTIdentifier, value: "Eq", line: 2, column: 1, pos: 7 }
-    t4 = { ttype: TTOperator, value: "<=", line: 2, column: 4, pos: 10 }
-    t5 = { ttype: TTIdentifier, value: "class", line: 2, column: 7, pos: 13 }
-    tokens = Array [t1, t2, t3, t4, t5]
-    Tuple rest constraints = skip_superclass_constraints tokens
-   in
-    rest == Array [t5] && constraints == Array [t1, t3]
-  </test>
+  <test>let t1 = { ttype: TTIdentifier, value: "C1", line: 1, column: 1, pos: 0 }; let t2 = { ttype: TTDelimiter, value: ",", line: 1, column: 3, pos: 2 }; let t3 = { ttype: TTIdentifier, value: "C2", line: 1, column: 5, pos: 4 }; let t4 = { ttype: TTOperator, value: "<=", line: 1, column: 8, pos: 7 }; let t5 = { ttype: TTIdentifier, value: "MyClass", line: 1, column: 11, pos: 10 }; let tokens = [t1, t2, t3, t4, t5]; let Tuple rest constraints = skip_superclass_constraints tokens; rest == [t5] && constraints == [t1, t2, t3]</test>
+  <test>let t1 = { ttype: TTIdentifier, value: "MyClass", line: 1, column: 1, pos: 0 }; let t2 = { ttype: TTIdentifier, value: "a", line: 1, column: 9, pos: 8 }; let tokens = [t1, t2]; let Tuple rest constraints = skip_superclass_constraints tokens; rest == tokens && constraints == []</test>
+  <test>let t1 = { ttype: TTIdentifier, value: "C1", line: 1, column: 1, pos: 0 }; let t2 = { ttype: TTNewline, value: "\n", line: 1, column: 3, pos: 2 }; let t3 = { ttype: TTOperator, value: "<=", line: 2, column: 1, pos: 4 }; let t4 = { ttype: TTIdentifier, value: "MyClass", line: 2, column: 4, pos: 7 }; let tokens = [t1, t2, t3, t4]; let Tuple rest constraints = skip_superclass_constraints tokens; rest == [t4] && constraints == [t1]</test>
  </tests>
 </implementation>
