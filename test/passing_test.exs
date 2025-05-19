@@ -1,4 +1,4 @@
-defmodule Nova.IntegrationPipelineTest do
+defmodule Nova.IntegrationPipeline2Test do
   use ExUnit.Case, async: false
 
   alias Nova.Compiler.{Tokenizer, Parser, CodeGen}
