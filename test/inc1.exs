@@ -11,7 +11,7 @@ defmodule Nova.TypeChecker.IncrementalTest do
     assert rest == []
     IO.inspect(decls)
     IO.inspect(rest)
-    # {:ok, %Nova.Compiler.Ast.Module{body: decls}} = Parser.parse(tokens)
+    # {:ok, %Nova.Compiler.Ast.Module{body: decls}, []} = Parser.parse_module(tokens)
 
     # Start with empty type environment
     Enum.reduce(decls, Env.empty(), fn decl, env ->
