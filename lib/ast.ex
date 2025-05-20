@@ -132,6 +132,10 @@ defmodule Nova.Compiler.Ast do
     defstruct [:name]
   end
 
+  defmodule QualifiedIdentifier do
+    defstruct [:namespace, :name]
+  end
+
   defmodule Literal do
     defstruct [:type, :value]
   end

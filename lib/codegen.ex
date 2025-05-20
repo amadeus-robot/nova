@@ -162,7 +162,10 @@ defmodule Nova.Compiler.CodeGen do
   end
 
   # Identifier
-  defp compile_expr(%Ast.Identifier{name: n}, _env), do: sanitize_name(n)
+  defp compile_expr(%Ast.Identifier{name: n}), do: sanitize_name(n)
+  defp compile_expr(%Ast.QualifiedIdentifier{namespace: ns, name: n}),
+    do: "#{sanitize_name(ns)}.#{sanitize_name(n)}"
+
 
   # Binary ops special‑cased
   defp compile_expr(%Ast.BinaryOp{op: "/=", left: l, right: r}, env) do
@@ -318,9 +321,12 @@ defmodule Nova.Compiler.CodeGen do
   # ─────────────────────────────────────────────────────────────
   # Patterns (env is only needed when they recurse into expressions)
   # ─────────────────────────────────────────────────────────────
-  defp compile_pattern(%Ast.Identifier{name: n}, _env), do: sanitize_name(n)
-  defp compile_pattern(%Ast.Literal{} = lit, env), do: compile_expr(lit, env)
-  defp compile_pattern(%Nova.Compiler.Ast.Wildcard{}, _env), do: "_"
+  defp compile_pattern(%Ast.Identifier{name: n}), do: sanitize_name(n)
+  defp compile_pattern(%Ast.QualifiedIdentifier{namespace: ns, name: n}),
+    do: "#{sanitize_name(ns)}.#{sanitize_name(n)}"
+  defp compile_pattern(%Ast.Literal{} = lit), do: compile_expr(lit)
+  defp compile_pattern(%Nova.Compiler.Ast.Wildcard{}), do: "_"
+
 
   defp compile_pattern(%Ast.Tuple{elements: es}, env),
     do: "{" <> (es |> Enum.map(&compile_pattern(&1, env)) |> Enum.join(", ")) <> "}"
