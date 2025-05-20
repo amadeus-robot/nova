@@ -1395,7 +1395,7 @@ defmodule Nova.CompilerTest do
 
     expected_ast = %Ast.ImportDeclaration{
       module: %Nova.Compiler.Ast.Identifier{name: "Data.List"},
-      imports: []
+      items: []
     }
 
     assert_ast_match(ast, expected_ast)
