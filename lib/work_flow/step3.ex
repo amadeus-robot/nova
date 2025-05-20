@@ -1,6 +1,9 @@
-defmodule WorkFlow.Step2 do
+defmodule WorkFlow.Step3 do
   def go() do
     {:ok, preamble_decls, []} = preamble()
+
+    # we merge all the passing definitions into a single module
+    # compile that module
 
     File.ls!("wip/imps")
     |> Enum.map(fn x ->
@@ -9,6 +12,13 @@ defmodule WorkFlow.Step2 do
       try do
         res =
           Nova.Compiler.Tokenizer.tokenize(p.code) |> Nova.Compiler.Parser.parse_declarations()
+
+        test =
+          Enum.map(p.tests, fn test ->
+            res =
+              Nova.Compiler.Tokenizer.tokenize(test)
+              |> Nova.Compiler.Parser.parse_expression()
+          end)
 
         case res do
           {:ok, decls, []} ->

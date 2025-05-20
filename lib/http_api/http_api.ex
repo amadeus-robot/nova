@@ -34,11 +34,47 @@ defmodule MyAPI.Router do
           uid: x.name,
           title: x.name,
           content: x.description,
-          children: [],
+          children: desc_for_task(x),
           status: "In Progress"
         }
       end)
 
-    JSON.encode!(tc)
+    r = [
+      %{
+        uid: "Parser",
+        title: "Parser",
+        content: "implementation of the parser",
+        children: tc,
+        status: "In Progress"
+      }
+    ]
+
+    JSON.encode!(r)
+  end
+
+  def desc_for_task(x) do
+    case File.read("wip/imps/#{x.name}") do
+      {:ok, generated} ->
+        xml = Prompts.ImplementationXmlParser.parse(generated)
+
+        compiles =
+          try do
+          catch
+            _, _ -> :error
+          end
+
+        [
+          %{
+            uid: "gen:" <> x.name,
+            title: "generated",
+            content: "```purescript\n#{xml.code}\n```",
+            children: [],
+            status: "Done"
+          }
+        ]
+
+      _ ->
+        []
+    end
   end
 end
