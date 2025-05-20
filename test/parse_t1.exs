@@ -9,8 +9,9 @@ defmodule Nova.Compiler.RecordParserTest do
   defp parse!(src) do
     tokens = Tokenizer.tokenize(src)
 
-    case Parser.parse(tokens) do
-      {:ok, ast} -> ast
+    case Parser.parse_module(tokens) do
+      {:ok, ast, []} -> ast
+      {:ok, _ast, rest} -> flunk("unparsed tokens: #{inspect(rest)}")
       {:error, reason} -> flunk("parse failed: #{inspect(reason)}")
     end
   end
