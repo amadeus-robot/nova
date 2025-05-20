@@ -136,6 +136,8 @@ defmodule Nova.Compiler.CodeGen do
 
   # Identifier
   defp compile_expr(%Ast.Identifier{name: n}), do: sanitize_name(n)
+  defp compile_expr(%Ast.QualifiedIdentifier{namespace: ns, name: n}),
+    do: "#{sanitize_name(ns)}.#{sanitize_name(n)}"
 
   defp compile_expr(%Ast.BinaryOp{op: "/=", left: l, right: r}) do
     "(#{compile_expr(l)} != #{compile_expr(r)})"
@@ -301,6 +303,8 @@ defmodule Nova.Compiler.CodeGen do
   # Patterns – re‑using expression compiler for now
   # ─────────────────────────────────────────────────────────────
   defp compile_pattern(%Ast.Identifier{name: n}), do: sanitize_name(n)
+  defp compile_pattern(%Ast.QualifiedIdentifier{namespace: ns, name: n}),
+    do: "#{sanitize_name(ns)}.#{sanitize_name(n)}"
   defp compile_pattern(%Ast.Literal{} = lit), do: compile_expr(lit)
   defp compile_pattern(%Nova.Compiler.Ast.Wildcard{}), do: "_"
 

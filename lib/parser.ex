@@ -1564,8 +1564,12 @@ defmodule Nova.Compiler.Parser do
   defp parse_qualified_identifier(tokens) do
     parse_separated(&parse_identifier/1, &expect_operator(&1, "."), tokens)
     |> case do
+      {:ok, [%Ast.Identifier{name: ns}, %Ast.Identifier{name: id}], rest} ->
+        {:ok, %Ast.QualifiedIdentifier{namespace: ns, name: id}, rest}
+
       {:ok, parts, rest} when is_list(parts) ->
-        {:ok, %Ast.Identifier{name: Enum.map(parts, & &1.name) |> Enum.join(".")}, rest}
+        joined = Enum.map(parts, & &1.name) |> Enum.join(".")
+        {:ok, %Ast.Identifier{name: joined}, rest}
 
       other ->
         other

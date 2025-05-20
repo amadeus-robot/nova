@@ -440,7 +440,7 @@ defmodule Nova.CompilerTest do
 
     # Test parsing of a qualified identifier
     {:ok, ast} = tokenize_and_parse("Module.function")
-    expected_ast = %Ast.Identifier{name: "Module.function"}
+    expected_ast = %Ast.QualifiedIdentifier{namespace: "Module", name: "function"}
     assert_ast_match(ast, expected_ast)
   end
 
