@@ -10,6 +10,5 @@ Think *PureScript-level guarantees* while thinking your code.
 
 ---
 
-- https://ollef.github.io/blog/posts/query-based-compilers.html
 
 
