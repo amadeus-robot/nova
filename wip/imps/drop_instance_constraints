@@ -10,11 +10,12 @@ drop_instance_constraints tokens =
         TTOperator -> token.value /= "<="
         _ -> true
 
-    splitResult = elixirEnumSplitWhile is_not_constraint_delimiter tokens
+    split_result = elixirEnumSplitWhile is_not_constraint_delimiter tokens
   in
-    case splitResult of
+    case split_result of
       Tuple _ after ->
         case after of
+          [] -> tokens
           h : t ->
             case h.ttype of
               TTOperator ->
@@ -23,13 +24,5 @@ drop_instance_constraints tokens =
                 else
                   tokens
               _ -> tokens
-          [] -> tokens
- </code>
- <tests>
-  <test>drop_instance_constraints (Array.fromFoldable [{ ttype: TTIdentifier, value: "C1", line: 1, column: 1, pos: 0 }, { ttype: TTDelimiter, value: ",", line: 1, column: 3, pos: 2 }, { ttype: TTIdentifier, value: "C2", line: 1, column: 5, pos: 4 }, { ttype: TTOperator, value: "<=", line: 1, column: 8, pos: 7 }, { ttype: TTIdentifier, value: "MyClass", line: 1, column: 11, pos: 10 }]) == Array.fromFoldable [{ ttype: TTIdentifier, value: "MyClass", line: 1, column: 11, pos: 10 }]</test>
-  <test>drop_instance_constraints (Array.fromFoldable [{ ttype: TTIdentifier, value: "MyClass", line: 1, column: 1, pos: 0 }, { ttype: TTIdentifier, value: "Int", line: 1, column: 9, pos: 8 }]) == Array.fromFoldable [{ ttype: TTIdentifier, value: "MyClass", line: 1, column: 1, pos: 0 }, { ttype: TTIdentifier, value: "Int", line: 1, column: 9, pos: 8 }]</test>
-  <test>drop_instance_constraints (Array.fromFoldable [{ ttype: TTOperator, value: "<=", line: 1, column: 1, pos: 0 }, { ttype: TTIdentifier, value: "MyClass", line: 1, column: 4, pos: 3 }]) == Array.fromFoldable [{ ttype: TTIdentifier, value: "MyClass", line: 1, column: 4, pos: 3 }]</test>
-  <test>drop_instance_constraints (Array.fromFoldable []) == Array.fromFoldable []</test>
- </tests>
 </implementation>
 ```

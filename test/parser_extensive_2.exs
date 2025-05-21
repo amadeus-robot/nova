@@ -8,6 +8,7 @@ defmodule Nova.CompilerTest do
   # Helper functions for testing
   defp tokenize_and_parse(source) do
     tokens = Tokenizer.tokenize(source)
+
     case Parser.parse_expression(tokens) do
       {:ok, ast, _rest} -> {:ok, ast}
       {:error, reason} -> {:error, reason}

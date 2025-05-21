@@ -57,6 +57,13 @@ defmodule MyAPI.Router do
       {:ok, generated} ->
         xml = Prompts.ImplementationXmlParser.parse(generated)
 
+        test =
+          Enum.map(xml.tests, fn test ->
+            res2 =
+              Nova.Compiler.Tokenizer.tokenize(test)
+              |> Nova.Compiler.Parser.parse_expression()
+          end)
+
         compiles =
           try do
           catch
@@ -71,7 +78,22 @@ defmodule MyAPI.Router do
             children: [],
             status: "Done"
           }
-        ]
+        ] ++
+          Enum.map(Enum.with_index(test), fn {t, idx} ->
+            st =
+              case t do
+                {:ok, _, []} -> "In Progress"
+                _ -> "Blocked"
+              end
+
+            %{
+              uid: "test #{x.name} #{idx}",
+              title: "test #{x.name} #{idx}",
+              content: "```purescript\n\n```",
+              children: [],
+              status: st
+            }
+          end)
 
       _ ->
         []

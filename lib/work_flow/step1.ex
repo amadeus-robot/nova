@@ -135,6 +135,11 @@ defmodule WorkFlow.Step1 do
 
       don't use ; to merge case clauses, use one line per case clause
 
+      use `:` to declare record literals
+        ```
+        { ttype : TTIdentifier, value : "a", line : 1, column : 1, pos : 0 }
+        ```
+
 
     <defined_imports>
     -- For debugging, maps to Elixir's inspect

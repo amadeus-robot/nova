@@ -5,34 +5,71 @@ defmodule WorkFlow.Step3 do
     # we merge all the passing definitions into a single module
     # compile that module
 
+    # we start with all the required funcs
+    # we define a stub for all
+    # the stub needs the right arity
+
     File.ls!("wip/imps")
     |> Enum.map(fn x ->
       p = Prompts.ImplementationXmlParser.parse(File.read!("wip/imps/#{x}"))
 
       try do
         res =
-          Nova.Compiler.Tokenizer.tokenize(IO.inspect(p.code)) |> Nova.Compiler.Parser.parse_declarations()
+          Nova.Compiler.Tokenizer.tokenize(p.code) |> Nova.Compiler.Parser.parse_declarations()
 
-        test =
+        tests =
           Enum.map(p.tests, fn test ->
             res2 =
               Nova.Compiler.Tokenizer.tokenize(test)
               |> Nova.Compiler.Parser.parse_expression()
 
-            #IO.inspect(res)
+            case res2 do
+              {:ok, code, []} ->
+                try do
+                  ns =
+                    Nova.Compiler.CodeGen.compile_expression(
+                      code,
+                      namespace: "Nova.Compiler.V001.Parser",
+                      generate_remote_calls: true
+                    )
+
+                  IO.puts(ns)
+
+                  :ok
+                catch
+                  _, _ ->
+                    :error
+                end
+
+              _ ->
+                IO.puts("--------------------------\r\n")
+                IO.puts(test)
+                :error
+            end
           end)
 
         case res do
           {:ok, decls, []} ->
             ns =
-              Nova.Compiler.CodeGen.compile(%Nova.Compiler.Ast.Module{
-                name: "Nova.Compiler.V001.Parser",
-                declarations: preamble_decls ++ decls
-              })
+              Nova.Compiler.CodeGen.compile(
+                %Nova.Compiler.Ast.Module{
+                  name: "Nova.Compiler.V001.Parser",
+                  declarations: preamble_decls ++ decls
+                },
+                generate_remote_calls: true
+              )
 
-            IO.puts(ns)
+            try do
+              Code.eval_string(ns)
 
-            {:ok, x}
+              # IO.puts(ns)
+
+              {:ok, x, tests}
+            catch
+              _, _ ->
+                IO.inspect(ns)
+                {:error, x, :code_eval}
+            end
 
           _ ->
             {:error, x}
