@@ -66,7 +66,10 @@ defmodule HierarchicalFunctionManager do
         metadata \\ %{},
         layer_id \\ :head
       ) do
-    GenServer.call(pid, {:store_module_declarations, layer_id, module_name, declarations, metadata})
+    GenServer.call(
+      pid,
+      {:store_module_declarations, layer_id, module_name, declarations, metadata}
+    )
   end
 
   @doc """
@@ -221,6 +224,7 @@ defmodule HierarchicalFunctionManager do
           files
           |> Enum.filter(&String.ends_with?(&1, ".layers"))
           |> Enum.sort()
+
         {:ok, layer_files}
 
       {:error, reason} ->
@@ -253,12 +257,17 @@ defmodule HierarchicalFunctionManager do
 
     # Create root layer (layer 0)
     root_table = :ets.new(:layer_0, [:set, :public])
-    :ets.insert(layers_table, {0, %{
-      parent: nil,
-      created_at: DateTime.utc_now(),
-      function_count: 0,
-      declaration_count: 0
-    }})
+
+    :ets.insert(
+      layers_table,
+      {0,
+       %{
+         parent: nil,
+         created_at: DateTime.utc_now(),
+         function_count: 0,
+         declaration_count: 0
+       }}
+    )
 
     state = %__MODULE__{
       layer_tables: %{0 => root_table},
@@ -272,18 +281,23 @@ defmodule HierarchicalFunctionManager do
     {:ok, state}
   end
 
-   @impl true
+  @impl true
   def handle_call(:clear, pid, state) do
     layers_table = :ets.new(:layers, [:set, :public])
 
     # Create root layer (layer 0)
     root_table = :ets.new(:layer_0, [:set, :public])
-    :ets.insert(layers_table, {0, %{
-      parent: nil,
-      created_at: DateTime.utc_now(),
-      function_count: 0,
-      declaration_count: 0
-    }})
+
+    :ets.insert(
+      layers_table,
+      {0,
+       %{
+         parent: nil,
+         created_at: DateTime.utc_now(),
+         function_count: 0,
+         declaration_count: 0
+       }}
+    )
 
     state = %__MODULE__{
       layer_tables: %{0 => root_table},
@@ -316,14 +330,16 @@ defmodule HierarchicalFunctionManager do
           function_count: 0,
           declaration_count: 0
         }
+
         :ets.insert(state.layers_table, {new_layer_id, layer_meta})
 
         # Update state
-        new_state = %{state |
-          layer_tables: Map.put(state.layer_tables, new_layer_id, new_table),
-          layer_hierarchy: Map.put(state.layer_hierarchy, new_layer_id, parent_layer_id),
-          head_layer_id: new_layer_id,
-          next_layer_id: state.next_layer_id + 1
+        new_state = %{
+          state
+          | layer_tables: Map.put(state.layer_tables, new_layer_id, new_table),
+            layer_hierarchy: Map.put(state.layer_hierarchy, new_layer_id, parent_layer_id),
+            head_layer_id: new_layer_id,
+            next_layer_id: state.next_layer_id + 1
         }
 
         Logger.info("Created layer #{new_layer_id} with parent #{parent_layer_id} (new head)")
@@ -332,7 +348,11 @@ defmodule HierarchicalFunctionManager do
   end
 
   @impl true
-  def handle_call({:store_module_declarations, layer_id, module_name, declarations, metadata}, _from, state) do
+  def handle_call(
+        {:store_module_declarations, layer_id, module_name, declarations, metadata},
+        _from,
+        state
+      ) do
     actual_layer_id = resolve_layer_id(state, layer_id)
 
     case Map.get(state.layer_tables, actual_layer_id) do
@@ -351,6 +371,7 @@ defmodule HierarchicalFunctionManager do
           [{^actual_layer_id, layer_meta}] ->
             updated_meta = Map.update(layer_meta, :declaration_count, 1, &(&1 + 1))
             :ets.insert(state.layers_table, {actual_layer_id, updated_meta})
+
           [] ->
             :ok
         end
@@ -369,7 +390,11 @@ defmodule HierarchicalFunctionManager do
   end
 
   @impl true
-  def handle_call({:store_function, layer_id, module_name, function_name, code, metadata}, _from, state) do
+  def handle_call(
+        {:store_function, layer_id, module_name, function_name, code, metadata},
+        _from,
+        state
+      ) do
     actual_layer_id = resolve_layer_id(state, layer_id)
 
     case Map.get(state.layer_tables, actual_layer_id) do
@@ -388,6 +413,7 @@ defmodule HierarchicalFunctionManager do
           [{^actual_layer_id, layer_meta}] ->
             updated_meta = Map.update(layer_meta, :function_count, 1, &(&1 + 1))
             :ets.insert(state.layers_table, {actual_layer_id, updated_meta})
+
           [] ->
             :ok
         end
@@ -419,8 +445,16 @@ defmodule HierarchicalFunctionManager do
         # Update layer function count
         case :ets.lookup(state.layers_table, actual_layer_id) do
           [{^actual_layer_id, layer_meta}] ->
-            updated_meta = Map.update(layer_meta, :function_count, length(functions), &(&1 + length(functions)))
+            updated_meta =
+              Map.update(
+                layer_meta,
+                :function_count,
+                length(functions),
+                &(&1 + length(functions))
+              )
+
             :ets.insert(state.layers_table, {actual_layer_id, updated_meta})
+
           [] ->
             :ok
         end
@@ -488,10 +522,13 @@ defmodule HierarchicalFunctionManager do
 
     if Map.has_key?(state.layer_hierarchy, actual_layer_id) do
       all_data = collect_all_module_data(state, actual_layer_id)
-      functions = Enum.filter(all_data, fn
-        {{_module_name, :__declarations__}, _data} -> false
-        {{_module_name, _function_name}, _data} -> true
-      end)
+
+      functions =
+        Enum.filter(all_data, fn
+          {{_module_name, :__declarations__}, _data} -> false
+          {{_module_name, _function_name}, _data} -> true
+        end)
+
       {:reply, {:ok, functions}, state}
     else
       {:reply, {:error, :layer_not_found}, state}
@@ -504,6 +541,7 @@ defmodule HierarchicalFunctionManager do
 
     if Map.has_key?(state.layer_hierarchy, actual_layer_id) do
       all_data = collect_all_module_data(state, actual_layer_id)
+
       declarations =
         all_data
         |> Enum.filter(fn
@@ -514,6 +552,7 @@ defmodule HierarchicalFunctionManager do
           {module_name, {declarations, metadata, layer}}
         end)
         |> Enum.into(%{})
+
       {:reply, {:ok, declarations}, state}
     else
       {:reply, {:error, :layer_not_found}, state}
@@ -552,7 +591,10 @@ defmodule HierarchicalFunctionManager do
         tombstone = {:deleted, %{deleted_at: DateTime.utc_now()}, actual_layer_id}
         :ets.insert(table, {key, tombstone})
 
-        Logger.debug("Deleted function #{module_name}.#{function_name} in layer #{actual_layer_id}")
+        Logger.debug(
+          "Deleted function #{module_name}.#{function_name} in layer #{actual_layer_id}"
+        )
+
         {:reply, :ok, state}
     end
   end
@@ -612,7 +654,10 @@ defmodule HierarchicalFunctionManager do
       parent_layer_id = state.layer_hierarchy[actual_layer_id]
       compacted_count = compact_layer_functions(state, actual_layer_id, parent_layer_id)
 
-      Logger.info("Compacted layer #{actual_layer_id}, removed #{compacted_count} redundant entries")
+      Logger.info(
+        "Compacted layer #{actual_layer_id}, removed #{compacted_count} redundant entries"
+      )
+
       {:reply, {:ok, compacted_count}, state}
     else
       {:reply, {:error, :invalid_layer}, state}
@@ -646,6 +691,7 @@ defmodule HierarchicalFunctionManager do
         next_layer_id: state.next_layer_id,
         layer_ids: Map.keys(state.layer_tables)
       }
+
       state_binary = :erlang.term_to_binary(state_data)
       File.write!(state_file, state_binary)
 
@@ -666,7 +712,8 @@ defmodule HierarchicalFunctionManager do
       layers_file = Path.join(base_path, "layers_metadata.layers")
 
       # Check if core files exist
-      unless File.exists?(hierarchy_file) and File.exists?(state_file) and File.exists?(layers_file) do
+      unless File.exists?(hierarchy_file) and File.exists?(state_file) and
+               File.exists?(layers_file) do
         {:reply, {:error, :files_not_found}, state}
       else
         # Clear existing tables
@@ -687,6 +734,7 @@ defmodule HierarchicalFunctionManager do
         layer_tables =
           Enum.reduce(state_data.layer_ids, %{}, fn layer_id, acc ->
             layer_file = Path.join(base_path, "layer_#{layer_id}.layers")
+
             if File.exists?(layer_file) do
               {:ok, table} = :ets.file2tab(String.to_charlist(layer_file))
               Map.put(acc, layer_id, table)
@@ -695,11 +743,12 @@ defmodule HierarchicalFunctionManager do
             end
           end)
 
-        new_state = %{state |
-          layer_tables: layer_tables,
-          layer_hierarchy: layer_hierarchy,
-          head_layer_id: state_data.head_layer_id,
-          next_layer_id: state_data.next_layer_id
+        new_state = %{
+          state
+          | layer_tables: layer_tables,
+            layer_hierarchy: layer_hierarchy,
+            head_layer_id: state_data.head_layer_id,
+            next_layer_id: state_data.next_layer_id
         }
 
         Logger.info("Loaded layers from disk at #{base_path}")
@@ -791,6 +840,7 @@ defmodule HierarchicalFunctionManager do
             {function_name, code}
           end)
           |> Enum.sort_by(fn {function_name, _code} -> function_name end)
+
         {declarations, formatted_functions}
 
       {[], functions} ->
@@ -800,6 +850,7 @@ defmodule HierarchicalFunctionManager do
             {function_name, code}
           end)
           |> Enum.sort_by(fn {function_name, _code} -> function_name end)
+
         {[], formatted_functions}
     end
   end
@@ -815,14 +866,21 @@ defmodule HierarchicalFunctionManager do
       |> Enum.map(fn {_function_name, code} -> "  #{code}" end)
       |> Enum.join("\n")
 
-    parts = [
-      "defmodule #{module_name} do",
-      if(declaration_code != "", do: "  #{declaration_code}", else: nil),
-      if(function_code != "", do: function_code, else: nil),
-      "end"
-    ]
-    |> Enum.filter(&(&1 != nil))
-    |> Enum.join(if declaration_code != "" and function_code != "" do "\n\n" else "\n" end)
+    parts =
+      [
+        "defmodule #{module_name} do",
+        if(declaration_code != "", do: "  #{declaration_code}", else: nil),
+        if(function_code != "", do: function_code, else: nil),
+        "end"
+      ]
+      |> Enum.filter(&(&1 != nil))
+      |> Enum.join(
+        if declaration_code != "" and function_code != "" do
+          "\n\n"
+        else
+          "\n"
+        end
+      )
 
     parts
   end
@@ -831,20 +889,27 @@ defmodule HierarchicalFunctionManager do
   defp render_declaration({:use, module}), do: "use #{module}"
   defp render_declaration({:require, module}), do: "require #{module}"
   defp render_declaration({:import, module}), do: "import #{module}"
+
   defp render_declaration({:import, module, opts}) when is_list(opts) do
-    opts_str = Enum.map_join(opts, ", ", fn
-      {:only, funcs} when is_list(funcs) -> "only: #{inspect(funcs)}"
-      {:except, funcs} when is_list(funcs) -> "except: #{inspect(funcs)}"
-      {key, val} -> "#{key}: #{inspect(val)}"
-    end)
+    opts_str =
+      Enum.map_join(opts, ", ", fn
+        {:only, funcs} when is_list(funcs) -> "only: #{inspect(funcs)}"
+        {:except, funcs} when is_list(funcs) -> "except: #{inspect(funcs)}"
+        {key, val} -> "#{key}: #{inspect(val)}"
+      end)
+
     "import #{module}, #{opts_str}"
   end
+
   defp render_declaration({:alias, module}), do: "alias #{module}"
+
   defp render_declaration({:alias, module, opts}) when is_list(opts) do
-    opts_str = Enum.map_join(opts, ", ", fn
-      {:as, alias_name} -> "as: #{alias_name}"
-      {key, val} -> "#{key}: #{inspect(val)}"
-    end)
+    opts_str =
+      Enum.map_join(opts, ", ", fn
+        {:as, alias_name} -> "as: #{alias_name}"
+        {key, val} -> "#{key}: #{inspect(val)}"
+      end)
+
     "alias #{module}, #{opts_str}"
   end
 
@@ -880,13 +945,15 @@ defmodule HierarchicalFunctionManager do
 
     # Remove redundant entries
     case Map.get(state.layer_tables, layer_id) do
-      nil -> 0
+      nil ->
+        0
+
       table ->
         Enum.each(to_remove, fn {key, _} ->
           :ets.delete(table, key)
         end)
+
         length(to_remove)
     end
   end
 end
-
