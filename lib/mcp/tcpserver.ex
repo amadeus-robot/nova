@@ -472,21 +472,6 @@ defmodule JsonrpcServer.TcpServer do
             },
             "required" => []
           }
-        },
-        %{
-          "name" => "hfm_list_disk_layers",
-          "description" => "Lists all available layer files on disk",
-          "inputSchema" => %{
-            "type" => "object",
-            "properties" => %{
-              "base_path" => %{
-                "type" => "string",
-                "description" => "Base path to search for layer files",
-                "default" => "./layers"
-              }
-            },
-            "required" => []
-          }
         }
       ]
     }
@@ -1041,34 +1026,6 @@ defmodule JsonrpcServer.TcpServer do
              %{
                "type" => "text",
                "text" => "Error loading from disk: #{inspect(reason)}"
-             }
-           ]
-         }}
-    end
-  end
-
-  def dispatch_method("tools/call", %{"name" => "hfm_list_disk_layers", "arguments" => args}) do
-    base_path = Map.get(args, "base_path", "./layers")
-
-    case HierarchicalFunctionManager.list_disk_layers(base_path) do
-      {:ok, layer_files} ->
-        {:ok,
-         %{
-           "content" => [
-             %{
-               "type" => "text",
-               "text" => "Available layer files in #{base_path}:\n#{Enum.join(layer_files, "\n")}"
-             }
-           ]
-         }}
-
-      {:error, reason} ->
-        {:ok,
-         %{
-           "content" => [
-             %{
-               "type" => "text",
-               "text" => "Error listing disk layers: #{inspect(reason)}"
              }
            ]
          }}
