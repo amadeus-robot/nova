@@ -15,7 +15,7 @@ defmodule Nova3.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {MyAPI.Application, :start}
+      mod: {Nova.Application, :start}
     ]
   end
 
@@ -30,7 +30,8 @@ defmodule Nova3.MixProject do
       {:plug, "~> 1.15"},
       {:bandit, "~> 1.4"},
       {:cors_plug, "~> 3.0"},
-      {:finch, "~> 0.19"}
+      {:finch, "~> 0.19"},
+      {:jason, "~> 1.4"}
     ]
   end
 end

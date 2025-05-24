@@ -10,5 +10,3 @@ Think *PureScript-level guarantees* while thinking your code.
 
 ---
 
-
-

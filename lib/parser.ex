@@ -5,21 +5,21 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   #  Helpers for newline‑aware token handling
   # ------------------------------------------------------------
-  defp skip_newlines(tokens) do
+  def skip_newlines(tokens) do
     Enum.drop_while(tokens, fn %Token{type: t} -> t == :newline end)
   end
 
-  defp drop_newlines([%Token{type: :newline} | rest]), do: drop_newlines(rest)
-  defp drop_newlines(tokens), do: tokens
+  def drop_newlines([%Token{type: :newline} | rest]), do: drop_newlines(rest)
+  def drop_newlines(tokens), do: tokens
 
-  defp strip_newlines(list),
+  def strip_newlines(list),
     do:
       Enum.reject(list, fn
         %Token{type: :newline} -> true
         _ -> false
       end)
 
-  defp ensure_consumed(rest) do
+  def ensure_consumed(rest) do
     case skip_newlines(rest) do
       [] ->
         :ok
@@ -91,7 +91,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Internal helper used when `module` appears as a declaration
-  defp parse_module_header(tokens) do
+  def parse_module_header(tokens) do
     tokens = drop_newlines(tokens)
 
     with {:ok, _, tokens} <- expect_keyword(tokens, "module"),
@@ -106,7 +106,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   #  Import
   # ------------------------------------------------------------
-  defp parse_import(tokens) do
+  def parse_import(tokens) do
     tokens = drop_newlines(tokens)
 
     with {:ok, _, tokens} <- expect_keyword(tokens, "import"),
@@ -124,22 +124,22 @@ defmodule Nova.Compiler.Parser do
   end
 
   # as  <ident>
-  defp parse_import_alias([%Token{type: :identifier, value: "as"} | rest]) do
+  def parse_import_alias([%Token{type: :identifier, value: "as"} | rest]) do
     with {:ok, id, rest} <- parse_identifier(rest) do
       {id.name, rest}
     end
   end
 
-  defp parse_import_alias(tokens), do: {nil, tokens}
+  def parse_import_alias(tokens), do: {nil, tokens}
 
   #    ("(" … ")" | "hiding" "(" … ")" | ε)
-  defp parse_import_selectors([%Token{type: :identifier, value: "hiding"} | rest]) do
+  def parse_import_selectors([%Token{type: :identifier, value: "hiding"} | rest]) do
     with {:ok, items, rest} <- parse_paren_import_list(rest) do
       {:ok, items, true, rest}
     end
   end
 
-  defp parse_import_selectors(tokens) do
+  def parse_import_selectors(tokens) do
     case parse_paren_import_list(tokens) do
       {:ok, items, rest} -> {:ok, items, false, rest}
       {:error, _} -> {:ok, [], false, tokens}
@@ -147,7 +147,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # "(" ImportList ")"
-  defp parse_paren_import_list([%Token{type: :delimiter, value: "("} | rest]) do
+  def parse_paren_import_list([%Token{type: :delimiter, value: "("} | rest]) do
     with {:ok, items, rest} <-
            parse_separated(&parse_import_item/1, &expect_delimiter(&1, ","), rest),
          {:ok, _, rest} <- expect_delimiter(rest, ")") do
@@ -155,10 +155,10 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_paren_import_list(_), do: {:error, "no paren import list"}
+  def parse_paren_import_list(_), do: {:error, "no paren import list"}
 
   # Foo | Foo(..) | Foo(Bar,Baz)
-  defp parse_import_item(tokens) do
+  def parse_import_item(tokens) do
     with {:ok, first, tokens} <- parse_identifier(tokens) do
       case tokens do
         [%Token{type: :delimiter, value: "("} | _] ->
@@ -171,7 +171,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_constructors([%Token{type: :delimiter, value: "("} | rest], mod) do
+  def parse_constructors([%Token{type: :delimiter, value: "("} | rest], mod) do
     case rest do
       [%Token{type: :operator, value: "."}, %Token{type: :operator, value: "."} | rest2] ->
         {:ok, {mod, :all}, expect_delimiter(rest2, ")") |> elem(2)}
@@ -191,7 +191,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   #  Foreign import (elixir)
   # ------------------------------------------------------------
-  defp parse_foreign_import_simple(tokens) do
+  def parse_foreign_import_simple(tokens) do
     with {:ok, _, tokens} <- expect_keyword(tokens, "foreign"),
          {:ok, _, tokens} <- expect_keyword(tokens, "import"),
          {:ok, name, tokens} <- parse_identifier(tokens),
@@ -217,7 +217,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_foreign_import(tokens) do
+  def parse_foreign_import(tokens) do
     tokens = drop_newlines(tokens)
 
     with {:ok, _, tokens} <- expect_keyword(tokens, "foreign"),
@@ -246,7 +246,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_record_pattern([%Token{type: :delimiter, value: "{"} | rest]) do
+  def parse_record_pattern([%Token{type: :delimiter, value: "{"} | rest]) do
     with {:ok, fields, rest} <-
            parse_separated(&parse_record_field_pattern/1, &expect_delimiter(&1, ","), rest),
          {:ok, _, rest} <- expect_delimiter(rest, "}") do
@@ -254,13 +254,13 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_record_pattern(_), do: {:error, "Expected record pattern"}
+  def parse_record_pattern(_), do: {:error, "Expected record pattern"}
 
   # ------------------------------------------------------------------
   # Record-pattern field:   { head       }  |  { head = h }
   #                         { head : tok }  |  { head = tok }
   # ------------------------------------------------------------------
-  defp parse_record_field_pattern(tokens) do
+  def parse_record_field_pattern(tokens) do
     with {:ok, lbl, tokens} <- parse_label(tokens) do
       cond do
         # ──────────────── `:` delimiter ────────────────
@@ -287,7 +287,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Data type declaration
-  defp parse_data_declaration(tokens) do
+  def parse_data_declaration(tokens) do
     with {:ok, _, tokens} <- expect_keyword(tokens, "data"),
          {:ok, type_name, tokens} <- parse_identifier(tokens),
          {:ok, type_vars, tokens} <- parse_many(&parse_identifier/1, tokens),
@@ -306,11 +306,11 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_data_constructors(tokens) do
+  def parse_data_constructors(tokens) do
     parse_separated(&parse_data_constructor/1, &expect_operator(&1, "|"), tokens)
   end
 
-  defp parse_data_constructor([%Token{column: base} | _] = tokens) do
+  def parse_data_constructor([%Token{column: base} | _] = tokens) do
     with {:ok, ctor_name, tokens1} <- parse_identifier(tokens) do
       tokens1 = skip_newlines(tokens1)
 
@@ -354,7 +354,7 @@ defmodule Nova.Compiler.Parser do
   # ───────────────────────────────────────────────────────────────
   #  Record-constructor field:  label :: Type
   # ───────────────────────────────────────────────────────────────
-  defp parse_record_constructor_field(tokens) do
+  def parse_record_constructor_field(tokens) do
     with {:ok, label_ast, tokens} <- parse_identifier(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "::"),
          tokens = skip_newlines(tokens),
@@ -364,7 +364,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Collect “label :: Type, …” between braces  { … }
-  defp parse_braced_record_fields([%Token{type: :delimiter, value: "{"} | rest]) do
+  def parse_braced_record_fields([%Token{type: :delimiter, value: "{"} | rest]) do
     with {:ok, fields, rest} <-
            parse_separated(&parse_record_constructor_field/1, &expect_delimiter(&1, ","), rest),
          {:ok, _, rest} <- expect_delimiter(rest, "}") do
@@ -372,10 +372,10 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_braced_record_fields(_), do: {:error, "Expected '{' for record constructor"}
+  def parse_braced_record_fields(_), do: {:error, "Expected '{' for record constructor"}
 
   # Layout-based (indent) list – stop when we dedent or hit “|”
-  defp collect_layout_record_fields([%Token{type: :newline} | rest], acc, base) do
+  def collect_layout_record_fields([%Token{type: :newline} | rest], acc, base) do
     rest = skip_newlines(rest)
 
     case rest do
@@ -389,12 +389,12 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp collect_layout_record_fields(tokens, acc, _base), do: {:ok, Enum.reverse(acc), tokens}
+  def collect_layout_record_fields(tokens, acc, _base), do: {:ok, Enum.reverse(acc), tokens}
 
   # Skip superclass constraints in a `class` declaration – everything
   # up to (and including) the first "<=" operator is treated as
   # constraints and ignored for now. Returns `{rest, constraints_tokens}`.
-  defp skip_superclass_constraints(tokens) do
+  def skip_superclass_constraints(tokens) do
     tokens = skip_newlines(tokens)
 
     {before, after_} =
@@ -411,17 +411,17 @@ defmodule Nova.Compiler.Parser do
 
   # If a class header contains a kind annotation, consume it and return the
   # parsed type. The annotation is optional and currently stored verbatim.
-  defp maybe_parse_class_kind([%Token{type: :operator, value: "::"} | rest]) do
+  def maybe_parse_class_kind([%Token{type: :operator, value: "::"} | rest]) do
     with {:ok, kind, rest} <- parse_type(rest) do
       {rest, kind}
     end
   end
 
-  defp maybe_parse_class_kind(tokens), do: {tokens, nil}
+  def maybe_parse_class_kind(tokens), do: {tokens, nil}
 
   # Drop leading instance constraints – identical idea but we only
   # need the remainder of the tokens (constraints are ignored for now).
-  defp drop_instance_constraints(tokens) do
+  def drop_instance_constraints(tokens) do
     {_before, after_} =
       Enum.split_while(tokens, fn
         %Token{type: :operator, value: "<="} -> false
@@ -439,7 +439,7 @@ defmodule Nova.Compiler.Parser do
   # ────────────────────────────────────────────────────
   # Supports superclass constraints:  
   #   class (Applicative m, Bind m) <= Monad m where …
-  defp parse_type_class(tokens) do
+  def parse_type_class(tokens) do
     with {:ok, _, tokens} <- expect_keyword(tokens, "class") do
       {tokens, _constraints} = skip_superclass_constraints(tokens)
 
@@ -476,7 +476,7 @@ defmodule Nova.Compiler.Parser do
   # Handles both named and unnamed instances, with optional constraints:
   #   instance showString :: Show String where …
   #   instance (Eq a) <= Show a where …
-  defp parse_type_class_instance(tokens) do
+  def parse_type_class_instance(tokens) do
     {tokens, derived?} =
       case tokens do
         [%Token{type: :keyword, value: "derive"} | rest] -> {rest, true}
@@ -531,14 +531,14 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Parse a function declaration with its type signature
-  defp split_type_and_rest(tokens, name) do
+  def split_type_and_rest(tokens, name) do
     Enum.split_while(tokens, fn
       %Token{type: :identifier, value: ^name} -> false
       _ -> true
     end)
   end
 
-  defp parse_function_with_type_signature(tokens) do
+  def parse_function_with_type_signature(tokens) do
     tokens = drop_newlines(tokens)
 
     case tokens do
@@ -570,7 +570,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Type signature parsing
-  defp parse_type_signature(tokens) do
+  def parse_type_signature(tokens) do
     tokens = drop_newlines(tokens)
 
     with {:ok, name, tokens} <- parse_identifier(tokens),
@@ -584,13 +584,13 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Type parsing
-  defp parse_type([%Token{type: :identifier, value: "forall"} | _] = toks),
+  def parse_type([%Token{type: :identifier, value: "forall"} | _] = toks),
     do: parse_forall_type(toks)
 
-  defp parse_type(toks), do: parse_function_type(toks)
+  def parse_type(toks), do: parse_function_type(toks)
 
   # forall a b.  ty
-  defp parse_forall_type([%Token{value: "forall"} | rest]) do
+  def parse_forall_type([%Token{value: "forall"} | rest]) do
     with {:ok, vars, rest} <- parse_many(&parse_identifier/1, rest),
          {:ok, _, rest} <- expect_operator(rest, "."),
          {:ok, ty, rest} <- parse_type(rest) do
@@ -598,7 +598,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_type_alias(tokens) do
+  def parse_type_alias(tokens) do
     with {:ok, _, tokens} <- expect_keyword(tokens, "type"),
          {:ok, name, tokens} <- parse_identifier(tokens),
          {:ok, vars, tokens} <- parse_many(&parse_identifier/1, tokens),
@@ -616,7 +616,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_function_type(tokens) do
+  def parse_function_type(tokens) do
     with {:ok, left, tokens} <- parse_type_term(tokens) do
       case tokens do
         [%Token{type: :operator, value: "->"} | rest] ->
@@ -641,7 +641,7 @@ defmodule Nova.Compiler.Parser do
 
   def parse_record_type(_), do: {:error, "Expected record type"}
 
-  defp parse_record_field(tokens) do
+  def parse_record_field(tokens) do
     with {:ok, label, tokens} <- parse_label(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "::"),
          tokens = skip_newlines(tokens),
@@ -650,7 +650,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_type_term(tokens) do
+  def parse_type_term(tokens) do
     parse_any(
       [
         &parse_record_type/1,
@@ -662,7 +662,7 @@ defmodule Nova.Compiler.Parser do
     )
   end
 
-  defp parse_list_type(tokens) do
+  def parse_list_type(tokens) do
     case tokens do
       [%Token{type: :delimiter, value: "["} | rest] ->
         with {:ok, element_type, rest} <- parse_type(rest),
@@ -675,7 +675,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_tuple_type(tokens) do
+  def parse_tuple_type(tokens) do
     case tokens do
       [%Token{type: :delimiter, value: "("} | rest] ->
         with {:ok, elements, rest} <-
@@ -696,7 +696,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Modified to fix the application type parsing
-  defp parse_basic_type(tokens) do
+  def parse_basic_type(tokens) do
     case parse_qualified_identifier(tokens) do
       {:ok, qid, rest} ->
         # Gather any type arguments that follow the qualified name
@@ -714,7 +714,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_basic_type_fallback(tokens) do
+  def parse_basic_type_fallback(tokens) do
     case tokens do
       [%Token{type: :identifier, value: name} | rest] ->
         # Parse type arguments if any
@@ -768,7 +768,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   #  Function declaration (no type signature)                   
   # ------------------------------------------------------------
-  defp parse_function_declaration(tokens) do
+  def parse_function_declaration(tokens) do
     with {:ok, name, tokens} <- parse_identifier(tokens),
          {:ok, parameters, tokens} <- parse_function_parameters(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "="),
@@ -790,12 +790,12 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_function_parameters(tokens), do: parse_many(&parse_simple_pattern/1, tokens)
+  def parse_function_parameters(tokens), do: parse_many(&parse_simple_pattern/1, tokens)
 
   # ------------------------------------------------------------
   #  Simple pattern (for parameters)
   # ------------------------------------------------------------
-  defp parse_simple_pattern(tokens) do
+  def parse_simple_pattern(tokens) do
     parse_any(
       [
         &parse_literal/1,
@@ -817,7 +817,7 @@ defmodule Nova.Compiler.Parser do
     )
   end
 
-  defp maybe_parse_where(tokens, _outer_indent, body) do
+  def maybe_parse_where(tokens, _outer_indent, body) do
     tokens = skip_newlines(tokens)
 
     case tokens do
@@ -837,7 +837,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp collect_where_bindings(tokens, where_col, acc) do
+  def collect_where_bindings(tokens, where_col, acc) do
     tokens = skip_newlines(tokens)
 
     case tokens do
@@ -879,10 +879,10 @@ defmodule Nova.Compiler.Parser do
     )
   end
 
-  defp capital?(<<c, _::binary>>) when c in ?A..?Z, do: true
-  defp capital?(_), do: false
+  def capital?(<<c, _::binary>>) when c in ?A..?Z, do: true
+  def capital?(_), do: false
 
-  defp parse_constructor_pattern(tokens) do
+  def parse_constructor_pattern(tokens) do
     with {:ok, ctor, rest} <- parse_identifier(tokens),
          # <── NEW line
          true <- capital?(ctor.name),
@@ -904,7 +904,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_cons_pattern(tokens) do
+  def parse_cons_pattern(tokens) do
     with {:ok, head, tokens} <- parse_simple_pattern(tokens),
          # the ":" itself
          {:ok, _, tokens} <- expect_colon(tokens),
@@ -919,15 +919,15 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp expect_colon([%Token{value: ":"} | rest]), do: {:ok, ":", rest}
-  defp expect_colon(_), do: {:error, "Expected ':'"}
+  def expect_colon([%Token{value: ":"} | rest]), do: {:ok, ":", rest}
+  def expect_colon(_), do: {:error, "Expected ':'"}
 
   def parse_wildcard_pattern([%Token{type: :identifier, value: "_"} | rest]),
     do: {:ok, %Ast.Wildcard{}, rest}
 
   def parse_wildcard_pattern(_), do: {:error, "Expected wildcard"}
 
-  defp parse_tuple_pattern(tokens) do
+  def parse_tuple_pattern(tokens) do
     case tokens do
       [%Token{type: :delimiter, value: "("} | rest] ->
         with {:ok, elements, rest} <-
@@ -941,15 +941,15 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_list_pattern([
-         %Token{type: :delimiter, value: "["},
-         %Token{type: :delimiter, value: "]"} | rest
-       ]) do
+  def parse_list_pattern([
+        %Token{type: :delimiter, value: "["},
+        %Token{type: :delimiter, value: "]"} | rest
+      ]) do
     {:ok, %Ast.List{elements: []}, rest}
   end
 
   # ── pattern: [p1, p2, …] ────────────────────────────────────────
-  defp parse_list_pattern([%Token{type: :delimiter, value: "["} | rest]) do
+  def parse_list_pattern([%Token{type: :delimiter, value: "["} | rest]) do
     with {:ok, elements, rest} <-
            parse_separated(&parse_pattern/1, &expect_delimiter(&1, ","), rest),
          {:ok, _, rest} <- expect_delimiter(rest, "]") do
@@ -957,10 +957,10 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_list_pattern(_), do: {:error, "Expected list pattern"}
+  def parse_list_pattern(_), do: {:error, "Expected list pattern"}
 
   # Lambda expression parsing
-  defp parse_lambda(tokens) do
+  def parse_lambda(tokens) do
     with {:ok, _, tokens} <- expect_operator(tokens, "\\"),
          {:ok, parameters, tokens} <- parse_function_parameters(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "->"),
@@ -1021,7 +1021,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_if_expression(tokens) do
+  def parse_if_expression(tokens) do
     tokens = skip_newlines(tokens)
 
     with {:ok, _, tokens} <- expect_keyword(tokens, "if"),
@@ -1042,7 +1042,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Helper to check if a token sequence likely starts a new pattern
-  defp is_pattern_start?(tokens) do
+  def is_pattern_start?(tokens) do
     case tokens do
       # Empty tokens can't start a pattern
       [] -> false
@@ -1092,7 +1092,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp split_until_newline(tokens) do
+  def split_until_newline(tokens) do
     Enum.split_while(tokens, fn
       %Token{type: :newline} -> false
       _ -> true
@@ -1110,7 +1110,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp take_body(tokens, acc, indent) do
+  def take_body(tokens, acc, indent) do
     case tokens do
       [] ->
         {Enum.reverse(acc), []}
@@ -1177,7 +1177,7 @@ defmodule Nova.Compiler.Parser do
 
   def maybe_parse_guard(tokens), do: {:error, nil, tokens}
 
-  defp parse_do_block(tokens) do
+  def parse_do_block(tokens) do
     with {:ok, _, tokens} <- expect_keyword(tokens, "do"),
          {:ok, expressions, tokens} <- parse_many(&parse_do_expression/1, tokens),
          remaining = skip_until_end(tokens) do
@@ -1187,7 +1187,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_do_expression(tokens) do
+  def parse_do_expression(tokens) do
     parse_any(
       [
         fn tokens ->
@@ -1225,7 +1225,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   # 1. top-level binary-expression entry point
   # ------------------------------------------------------------
-  defp parse_binary_expression(tokens) do
+  def parse_binary_expression(tokens) do
     parse_any(
       [
         &parse_let_expression/1,
@@ -1239,7 +1239,7 @@ defmodule Nova.Compiler.Parser do
     )
   end
 
-  defp parse_dollar_expression(tokens) do
+  def parse_dollar_expression(tokens) do
     # first parse *anything* tighter than '$'
     with {:ok, left, tokens} <- parse_logical_expression(tokens) do
       tokens = skip_newlines(tokens)
@@ -1262,7 +1262,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   # 2. logical  (&&  ||)  – lowest precedence
   # ------------------------------------------------------------
-  defp parse_logical_expression(tokens) do
+  def parse_logical_expression(tokens) do
     with {:ok, left, tokens} <- parse_comparison_expression(tokens) do
       case tokens do
         [%Token{type: :operator, value: op} | rest] when op in ["&&", "||"] ->
@@ -1279,7 +1279,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   # 3. comparison (== != < <= > >=)
   # ------------------------------------------------------------
-  defp parse_comparison_expression(tokens) do
+  def parse_comparison_expression(tokens) do
     tokens = skip_newlines(tokens)
 
     with {:ok, left, tokens} <- parse_additive_expression(tokens) do
@@ -1303,7 +1303,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   # 4. additive (+ -)
   # ------------------------------------------------------------
-  defp parse_additive_expression(tokens) do
+  def parse_additive_expression(tokens) do
     with {:ok, left, tokens} <- parse_multiplicative_expression(tokens) do
       case tokens do
         [%Token{type: :operator, value: op} | rest] when op in ["+", "-", "++", "<>"] ->
@@ -1318,7 +1318,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # ── record literal  ─────────────────────────────────────────
-  defp parse_record_literal([%Token{type: :delimiter, value: "{"} | rest]) do
+  def parse_record_literal([%Token{type: :delimiter, value: "{"} | rest]) do
     with {:ok, fields, rest} <-
            parse_separated(&parse_record_field_expr/1, &expect_delimiter(&1, ","), rest),
          {:ok, _, rest} <- expect_delimiter(rest, "}") do
@@ -1326,9 +1326,9 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_record_literal(_), do: {:error, "Expected record literal"}
+  def parse_record_literal(_), do: {:error, "Expected record literal"}
 
-  defp parse_record_field_expr(tokens) do
+  def parse_record_field_expr(tokens) do
     with {:ok, label, tokens} <- parse_identifier(tokens),
          # uses the new ':'
          {:ok, _, tokens} <- expect_delimiter(tokens, ":"),
@@ -1341,7 +1341,7 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   # 5. multiplicative (* /)
   # ------------------------------------------------------------
-  defp parse_multiplicative_expression(tokens) do
+  def parse_multiplicative_expression(tokens) do
     # <- was parse_comparison_expression/1
     with {:ok, left, tokens} <- parse_unary_expression(tokens) do
       case tokens do
@@ -1372,17 +1372,17 @@ defmodule Nova.Compiler.Parser do
   # ------------------------------------------------------------
   # 5-a. unary (-  +  !)          – tighter than multiplicative
   # ------------------------------------------------------------
-  defp parse_unary_expression([%Token{type: :operator, value: op} | rest])
-       when op in ["-", "+", "!"] do
+  def parse_unary_expression([%Token{type: :operator, value: op} | rest])
+      when op in ["-", "+", "!"] do
     with {:ok, expr, rest} <- parse_unary_expression(rest) do
       {:ok, %Ast.UnaryOp{op: op, value: expr}, rest}
     end
   end
 
-  defp parse_unary_expression(tokens), do: parse_application(tokens)
+  def parse_unary_expression(tokens), do: parse_application(tokens)
 
   # Function application parsing
-  defp parse_application([%Token{column: base} | _] = toks) do
+  def parse_application([%Token{column: base} | _] = toks) do
     with {:ok, fn_term, rest} <- parse_term(toks) do
       {args, rest} = collect_application_args(rest, [], base)
 
@@ -1393,12 +1393,12 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_application([]) do
+  def parse_application([]) do
     {:error, :no_tokens_remaining}
   end
 
   # Helper function to collect all arguments for function application
-  defp collect_application_args([%Token{type: :newline} | rest], acc, base) do
+  def collect_application_args([%Token{type: :newline} | rest], acc, base) do
     rest = skip_newlines(rest)
 
     case rest do
@@ -1415,14 +1415,14 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp collect_application_args(tokens, acc, base) do
+  def collect_application_args(tokens, acc, base) do
     case parse_term(tokens) do
       {:ok, arg, rest} -> collect_application_args(rest, acc ++ [arg], base)
       {:error, _} -> {acc, tokens}
     end
   end
 
-  defp parse_term(tokens) do
+  def parse_term(tokens) do
     parse_any(
       [
         &parse_record_literal/1,
@@ -1449,14 +1449,14 @@ defmodule Nova.Compiler.Parser do
   end
 
   # ── expressions: [] literal ─────────────────────────────────────
-  defp parse_list_literal([
-         %Token{type: :delimiter, value: "["},
-         %Token{type: :delimiter, value: "]"} | rest
-       ]) do
+  def parse_list_literal([
+        %Token{type: :delimiter, value: "["},
+        %Token{type: :delimiter, value: "]"} | rest
+      ]) do
     {:ok, %Ast.List{elements: []}, rest}
   end
 
-  defp parse_list_literal([%Token{type: :delimiter, value: "["} | rest]) do
+  def parse_list_literal([%Token{type: :delimiter, value: "["} | rest]) do
     with {:ok, elements, rest} <-
            parse_separated(&parse_expression/1, &expect_delimiter(&1, ","), rest),
          {:ok, _, rest} <- expect_delimiter(rest, "]") do
@@ -1464,9 +1464,9 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_list_literal(_), do: {:error, "Expected list literal"}
+  def parse_list_literal(_), do: {:error, "Expected list literal"}
 
-  defp parse_list_comprehension(tokens) do
+  def parse_list_comprehension(tokens) do
     case tokens do
       [%Token{type: :delimiter, value: "["} | rest] ->
         with {:ok, expression, rest} <- parse_expression(rest),
@@ -1484,7 +1484,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_generator(tokens) do
+  def parse_generator(tokens) do
     with {:ok, pattern, tokens} <- parse_pattern(tokens),
          {:ok, _, tokens} <- expect_operator(tokens, "<-"),
          {:ok, expression, tokens} <- parse_expression(tokens) do
@@ -1494,7 +1494,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_tuple_literal(tokens) do
+  def parse_tuple_literal(tokens) do
     case tokens do
       [%Token{type: :delimiter, value: "("} | rest] ->
         with {:ok, elements, rest} <-
@@ -1513,7 +1513,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_literal(tokens) do
+  def parse_literal(tokens) do
     tokens = skip_newlines(tokens)
 
     case tokens do
@@ -1531,7 +1531,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_string_literal(tokens) do
+  def parse_string_literal(tokens) do
     tokens = skip_newlines(tokens)
 
     case tokens do
@@ -1540,7 +1540,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_label(tokens) do
+  def parse_label(tokens) do
     tokens = skip_newlines(tokens)
 
     case tokens do
@@ -1552,7 +1552,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_identifier(tokens) do
+  def parse_identifier(tokens) do
     tokens = skip_newlines(tokens)
 
     case tokens do
@@ -1561,7 +1561,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_qualified_identifier(tokens) do
+  def parse_qualified_identifier(tokens) do
     parse_separated(&parse_identifier/1, &expect_operator(&1, "."), tokens)
     |> case do
       {:ok, [%Ast.Identifier{name: ns}, %Ast.Identifier{name: id}], rest} ->
@@ -1577,7 +1577,7 @@ defmodule Nova.Compiler.Parser do
   end
 
   # Helpers
-  defp parse_any(parsers, tokens) do
+  def parse_any(parsers, tokens) do
     case parsers do
       [] ->
         {:error, "No parser succeeded #{inspect(List.first(tokens))}"}
@@ -1604,7 +1604,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_separated(parser, separator, tokens) do
+  def parse_separated(parser, separator, tokens) do
     with {:ok, first, tokens} <- parser.(tokens) do
       parse_separated_rest(parser, separator, tokens, [first])
     else
@@ -1612,7 +1612,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp parse_separated_rest(parser, separator, tokens, acc) do
+  def parse_separated_rest(parser, separator, tokens, acc) do
     case separator.(tokens) do
       {:ok, _, tokens} ->
         case parser.(tokens) do
@@ -1641,7 +1641,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp expect_operator(tokens, expected) do
+  def expect_operator(tokens, expected) do
     tokens = skip_newlines(tokens)
 
     case tokens do
@@ -1653,7 +1653,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp expect_delimiter(tokens, expected) do
+  def expect_delimiter(tokens, expected) do
     tokens = skip_newlines(tokens)
 
     case tokens do
@@ -1665,7 +1665,7 @@ defmodule Nova.Compiler.Parser do
     end
   end
 
-  defp skip_until_end(tokens) do
+  def skip_until_end(tokens) do
     case Enum.find_index(tokens, fn token -> token.type == :keyword and token.value == "end" end) do
       nil -> tokens
       idx -> Enum.drop(tokens, idx + 1)
