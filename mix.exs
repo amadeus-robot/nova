@@ -22,11 +22,8 @@ defmodule Nova3.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:beaver, "~> 0.4"},
       {:llvm_config, "~> 0.1"},
       {:sweet_xml, "~> 0.7.5"},
-      {:rocksdb, git: "https://github.com/xenomorphtech/erlang-rocksdb.git", override: true},
-      {:mnesia_kv, git: "https://github.com/xenomorphtech/mnesia_kv.git"},
       {:plug, "~> 1.15"},
       {:bandit, "~> 1.4"},
       {:cors_plug, "~> 3.0"},
