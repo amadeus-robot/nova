@@ -41,28 +41,26 @@ defmodule JsonrpcServer.TcpServer do
     end
   end
 
-  def handle_client(socket) do
+  def handle_client(socket, rest \\ "") do
     case :gen_tcp.recv(socket, 0) do
       {:ok, data} ->
         IO.inspect({:got, data})
-        # Remove newline characters
-        json_data = String.trim(data)
 
-        response =
-          case Jason.decode(json_data) do
-            {:ok, request} ->
-              __MODULE__.handle_jsonrpc_request(request)
+        json_data = rest <> data
 
-            {:error, error} ->
-              create_error_response(nil, -32700, "Parse error: #{inspect(error)}")
-          end
+        case Jason.decode(json_data) do
+          {:ok, request} ->
+            response = __MODULE__.handle_jsonrpc_request(request)
+            response_json = Jason.encode!(response) <> "\n"
 
-        response_json = Jason.encode!(response) <> "\n"
+            :gen_tcp.send(socket, response_json)
 
-        :gen_tcp.send(socket, response_json)
+            # Continue handling requests from this client
+            __MODULE__.handle_client(socket)
 
-        # Continue handling requests from this client
-        __MODULE__.handle_client(socket)
+          {:error, error} ->
+            __MODULE__.handle_client(socket, json_data)
+        end
 
       {:error, :closed} ->
         Logger.info("Client disconnected")
