@@ -15,7 +15,8 @@ defmodule Nova.Application do
         # bind to all IPv4 interfaces
         plug: MyAPI.Router, scheme: :http, ip: {0, 0, 0, 0}, port: 4000
       },
-      {JsonrpcServer.TcpServer, 5000}
+      {JsonrpcServer.TcpServer, 5000},
+      {HierarchicalFunctionManager, []}
     ]
 
     children =
