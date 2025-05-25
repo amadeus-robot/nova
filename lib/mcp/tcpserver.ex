@@ -482,12 +482,7 @@ defmodule JsonrpcServer.TcpServer do
         "name" => "eval_elixir_snippet"
       }) do
     res =
-      try do
-        Code.eval_string(code)
-      catch
-        a, b ->
-          {:crash, a, b, __STACKTRACE__}
-      end
+      SafeEvaluator.eval(code)
 
     reply = %{
       "content" => [

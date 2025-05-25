@@ -23,8 +23,8 @@ skip_until_end tokens =
     t3 = { ttype = TTIdentifier, value = "b", line = 1, column = 6, pos = 5 }
     t4 = { ttype = TTKeyword, value = "end", line = 1, column = 8, pos = 7 }
     t5 = { ttype = TTIdentifier, value = "c", line = 1, column = 12, pos = 11 }
-    tokens = Array [t1, t2, t3, t4, t5]
-    expected = Array [t5]
+    tokens = [t1, t2, t3, t4, t5]
+    expected = [t5]
    in
     skip_until_end tokens == expected
   </test>
@@ -33,15 +33,15 @@ skip_until_end tokens =
     t1 = { ttype = TTIdentifier, value = "a", line = 1, column = 1, pos = 0 }
     t2 = { ttype = TTKeyword, value = "do", line = 1, column = 3, pos = 2 }
     t3 = { ttype = TTIdentifier, value = "b", line = 1, column = 6, pos = 5 }
-    tokens = Array [t1, t2, t3]
-    expected = Array [t1, t2, t3]
+    tokens = [t1, t2, t3]
+    expected = [t1, t2, t3]
    in
     skip_until_end tokens == expected
   </test>
   <test>
    let
-    tokens = Array []
-    expected = Array []
+    tokens = []
+    expected = []
    in
     skip_until_end tokens == expected
   </test>
@@ -49,8 +49,8 @@ skip_until_end tokens =
    let
     t1 = { ttype = TTKeyword, value = "end", line = 1, column = 1, pos = 0 }
     t2 = { ttype = TTIdentifier, value = "a", line = 1, column = 5, pos = 4 }
-    tokens = Array [t1, t2]
-    expected = Array [t2]
+    tokens = [t1, t2]
+    expected = [t2]
    in
     skip_until_end tokens == expected
   </test>

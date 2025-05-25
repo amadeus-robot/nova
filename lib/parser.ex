@@ -1004,10 +1004,14 @@ defmodule Nova.Compiler.Parser do
   def parse_binding(tokens) do
     tokens = skip_newlines(tokens)
 
-    # ──  try “name params … = rhs” first ──────────────────────
+    # ──  try "name params … = rhs" first ──────────────────────
     case parse_function_declaration(tokens) do
+      {:ok, %Ast.FunctionDeclaration{parameters: []} = fun, rest} ->
+        # No parameters - this is a simple variable binding, not a function
+        {:ok, {%Ast.Identifier{name: fun.name}, fun.body}, rest}
+
       {:ok, %Ast.FunctionDeclaration{} = fun, rest} ->
-        # desugar into a lambda so the RHS is still an *expression*
+        # Has parameters - desugar into a lambda so the RHS is still an *expression*
         lambda = %Ast.Lambda{parameters: fun.parameters, body: fun.body}
         {:ok, {%Ast.Identifier{name: fun.name}, lambda}, rest}
 

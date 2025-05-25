@@ -35,7 +35,7 @@ defmodule WorkFlow.Step3 do
 
                   IO.puts(ns)
 
-                  :ok
+                  {:ok, ns}
                 catch
                   _, _ ->
                     :error
@@ -64,11 +64,28 @@ defmodule WorkFlow.Step3 do
 
               # IO.puts(ns)
 
+              tests =
+                Enum.map(tests, fn t ->
+                  case t do
+                    {:ok, c} ->
+                      try do
+                        {r, env} = Code.eval_string(c)
+                        r
+                      catch
+                        a, b ->
+                          {:crash, a, b}
+                      end
+
+                    x ->
+                      x
+                  end
+                end)
+
               {:ok, x, tests}
             catch
               _, _ ->
                 IO.inspect(ns)
-                {:error, x, :code_eval}
+                {:error, x, :code_eval_error}
             end
 
           _ ->

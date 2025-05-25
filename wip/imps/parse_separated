@@ -4,7 +4,7 @@
 parse_separated :: forall a. (Array Token -> ParseOutput a) -> (Array Token -> ParseOutput Unit) -> Array Token -> ParseOutput (Array a)
 parse_separated parser separator tokens =
   case parser tokens of
-    Ok first rest -> parse_separated_rest parser separator rest (Array [first])
+    Ok first rest -> parse_separated_rest parser separator rest ([first])
     Error reason -> Error reason
 
 parse_separated_rest :: forall a. (Array Token -> ParseOutput a) -> (Array Token -> ParseOutput Unit) -> Array Token -> Array a -> ParseOutput (Array a)
@@ -27,9 +27,9 @@ parse_separated_rest parser separator tokens acc =
     pComma tokens = case tokens of
       { ttype: TTDelimiter, value: "," } : rest -> Ok unit rest
       _ -> Error "Expected comma"
-    input = Array [{ ttype: TTNumber, value: "1", line: 1, column: 1, pos: 1 }, { ttype: TTDelimiter, value: ",", line: 1, column: 2, pos: 2 }, { ttype: TTNumber, value: "2", line: 1, column: 3, pos: 3 }, { ttype: TTDelimiter, value: ",", line: 1, column: 4, pos: 4 }, { ttype: TTNumber, value: "3", line: 1, column: 5, pos: 5 }]
+    input = [{ ttype: TTNumber, value: "1", line: 1, column: 1, pos: 1 }, { ttype: TTDelimiter, value: ",", line: 1, column: 2, pos: 2 }, { ttype: TTNumber, value: "2", line: 1, column: 3, pos: 3 }, { ttype: TTDelimiter, value: ",", line: 1, column: 4, pos: 4 }, { ttype: TTNumber, value: "3", line: 1, column: 5, pos: 5 }]
    in
-    parse_separated pInt pComma input == Ok (Array [1, 2, 3]) (Array [])
+    parse_separated pInt pComma input == Ok ([1, 2, 3]) ([])
   </test>
   <test>
    let
@@ -39,7 +39,7 @@ parse_separated_rest parser separator tokens acc =
     pComma tokens = case tokens of
       { ttype: TTDelimiter, value: "," } : rest -> Ok unit rest
       _ -> Error "Expected comma"
-    input = Array [{ ttype: TTNumber, value: "1", line: 1, column: 1, pos: 1 }, { ttype: TTDelimiter, value: ",", line: 1, column: 2, pos: 2 }, { ttype: TTNumber, value: "2", line: 1, column: 3, pos: 3 }, { ttype: TTIdentifier, value: "a", line: 1, column: 4, pos: 4 }]
+    input = [{ ttype: TTNumber, value: "1", line: 1, column: 1, pos: 1 }, { ttype: TTDelimiter, value: ",", line: 1, column: 2, pos: 2 }, { ttype: TTNumber, value: "2", line: 1, column: 3, pos: 3 }, { ttype: TTIdentifier, value: "a", line: 1, column: 4, pos: 4 }]
    in
     parse_separated pInt pComma input == Error "Expected item after separator"
   </test>
@@ -51,9 +51,9 @@ parse_separated_rest parser separator tokens acc =
     pComma tokens = case tokens of
       { ttype: TTDelimiter, value: "," } : rest -> Ok unit rest
       _ -> Error "Expected comma"
-    input = Array [{ ttype: TTNumber, value: "1", line: 1, column: 1, pos: 1 }, { ttype: TTIdentifier, value: "a", line: 1, column: 2, pos: 2 }]
+    input = [{ ttype: TTNumber, value: "1", line: 1, column: 1, pos: 1 }, { ttype: TTIdentifier, value: "a", line: 1, column: 2, pos: 2 }]
    in
-    parse_separated pInt pComma input == Ok (Array [1]) (Array [{ ttype: TTIdentifier, value: "a", line: 1, column: 2, pos: 2 }])
+    parse_separated pInt pComma input == Ok ([1]) ([{ ttype: TTIdentifier, value: "a", line: 1, column: 2, pos: 2 }])
   </test>
   <test>
    let
@@ -63,7 +63,7 @@ parse_separated_rest parser separator tokens acc =
     pComma tokens = case tokens of
       { ttype: TTDelimiter, value: "," } : rest -> Ok unit rest
       _ -> Error "Expected comma"
-    input = Array [{ ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 1 }]
+    input = [{ ttype: TTIdentifier, value: "a", line: 1, column: 1, pos: 1 }]
    in
     parse_separated pInt pComma input == Error "Expected number"
   </test>
