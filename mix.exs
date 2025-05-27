@@ -29,7 +29,8 @@ defmodule Nova3.MixProject do
       {:cors_plug, "~> 3.0"},
       {:finch, "~> 0.19"},
       {:jason, "~> 1.4"},
-      {:hackney, "~> 1.9"}
+      {:hackney, "~> 1.9"},
+      {:mecp, git: "https://github.com/amadeus-robot/mcp"}
     ]
   end
 end

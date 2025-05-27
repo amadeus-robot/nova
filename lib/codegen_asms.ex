@@ -9,8 +9,6 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
     * `:generate_remote_calls` – if true, local calls become
       `${namespace}.${fn}` so snippets run in isolation (tests / REPL).
 
-  NOTE:  This is **pseudocode**; helper functions show intent, not
-  finished Elixir.
   """
 
   alias Nova.Compiler.Ast
@@ -24,10 +22,36 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
           generate_remote_calls: boolean()
         }
 
-  # indent(str, n) – identical to the Elixir backend
   # sanitize_name(str) – replace Prime `'` etc. with legal JS id chars
   # to_as_modname/1 – map Nova module id → PascalCase filename/namespace
-  # string_typed?/1 – re-used from Elixir backend
+
+  defp sanitize_name(str) when is_binary(str) do
+    str |> String.replace("'", "_prime")
+  end
+
+  defp to_as_modname(id) when is_binary(id) do
+    id
+    |> String.split(".")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join("")
+  end
+
+  defp indent(str, n) do
+    pad = String.duplicate(" ", n)
+
+    str
+    |> String.split("\n")
+    |> Enum.map_join("\n", fn
+      "" -> ""
+      line -> pad <> line
+    end)
+  end
+
+  # String‑typed detection helpers – unchanged
+  defp string_typed?(%Ast.Literal{type: :string}), do: true
+  defp string_typed?(%{inferred_type: %TCon{name: :String}}), do: true
+  defp string_typed?(%{inferred_type: %{name: :String}}), do: true
+  defp string_typed?(_), do: false
 
   # ──────────────────────────────────
   # Public API
@@ -44,7 +68,8 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
     body_src =
       decls
       |> Enum.map(&compile_decl(&1, env))
-      |> Enum.reject(&(&1 == ""))        # drop no-ops
+      # drop no-ops
+      |> Enum.reject(&(&1 == ""))
       |> Enum.join("\n\n")
       |> indent(0)
 
@@ -78,12 +103,15 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
   # ──────────────────────────────────
   # Declarations
   # ──────────────────────────────────
-  defp compile_decl(%Ast.TypeAlias{name: id, type_vars: [], type: %Ast.RecordType{fields: f}},
-                    _env) do
+  defp compile_decl(
+         %Ast.TypeAlias{name: id, type_vars: [], type: %Ast.RecordType{fields: f}},
+         _env
+       ) do
     # AssemblyScript record type ⇒ `interface` (erased at runtime)
     field_lines =
       for {label, _} <- f do
-        "  #{sanitize_name(label)}: any;"   # TODO: infer real AS type
+        # TODO: infer real AS type
+        "  #{sanitize_name(label)}: any;"
       end
 
     """
@@ -110,8 +138,8 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
   end
 
   defp compile_decl(%Ast.FunctionDeclaration{} = fun, env), do: compile_fun(fun, env)
-  defp compile_decl(%Ast.ForeignImport{} = fi, _env),        do: gen_foreign(fi)
-  defp compile_decl(_other, _env),                           do: ""
+  defp compile_decl(%Ast.ForeignImport{} = fi, _env), do: gen_foreign(fi)
+  defp compile_decl(_other, _env), do: ""
 
   # ──────────────────────────────────
   # Functions
@@ -133,8 +161,9 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
   # ❶ Literals -----------------------------------------------------
   defp compile_expr(%Ast.Literal{type: :number, value: v}, _), do: "#{v}"
   defp compile_expr(%Ast.Literal{type: :string, value: v}, _), do: ~s("#{v}")
-  defp compile_expr(%Ast.Literal{type: :char, value: v},   _), do: "'#{v}'"
-  defp compile_expr(%Ast.Wildcard{}, _),                       do: "_"      # only inside patterns
+  defp compile_expr(%Ast.Literal{type: :char, value: v}, _), do: "'#{v}'"
+  # only inside patterns
+  defp compile_expr(%Ast.Wildcard{}, _), do: "_"
 
   # ❷ Record literal ---------------------------------------------
   defp compile_expr(%Ast.RecordLiteral{fields: fs}, env) do
@@ -142,6 +171,7 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
       fs
       |> Enum.map(fn {lbl, ex} -> "#{sanitize_name(lbl)}: #{compile_expr(ex, env)}" end)
       |> Enum.join(", ")
+
     "{ #{pairs} }"
   end
 
@@ -174,6 +204,7 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
         %Ast.Identifier{} ->
           base = compile_expr(f, env)
           if env.generate_remote_calls, do: "#{env.namespace}.#{base}", else: base
+
         _ ->
           "(" <> compile_expr(f, env) <> ")"
       end
@@ -195,9 +226,7 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
   # ❽ Let binding → IIFE -----------------------------------------
   defp compile_expr(%Ast.LetBinding{bindings: bs, body: body}, env) do
     binding_lines =
-      bs
-      |> Enum.map(&compile_let_binding(&1, env))
-      |> Enum.join(";\n") |> indent(4)
+      bs |> Enum.map(&compile_let_binding(&1, env)) |> Enum.join(";\n") |> indent(4)
 
     """
     (() => {
@@ -214,9 +243,11 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
       cs
       |> Enum.map(fn clause ->
         %{pattern: p, guard: g, body: b} = clause
+
         cond_str =
           case {compile_pattern(p, env), g} do
-            {pat, nil} -> "match(#{pat})"           # match() = runtime helper
+            # match() = runtime helper
+            {pat, nil} -> "match(#{pat})"
             {pat, gexpr} -> "(match(#{pat}) && #{compile_expr(gexpr, env)})"
           end
 
@@ -234,11 +265,12 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
   end
 
   # ➓ Collections -------------------------------------------------
-  defp compile_expr(%Ast.List{elements: es},   env),
+  defp compile_expr(%Ast.List{elements: es}, env),
     do: "[" <> Enum.map_join(es, ", ", &compile_expr(&1, env)) <> "]"
 
-  defp compile_expr(%Ast.Tuple{elements: es},  env),
-    do: "[" <> Enum.map_join(es, ", ", &compile_expr(&1, env)) <> "]"   # tuples as JS arrays
+  defp compile_expr(%Ast.Tuple{elements: es}, env),
+    # tuples as JS arrays
+    do: "[" <> Enum.map_join(es, ", ", &compile_expr(&1, env)) <> "]"
 
   # ⓫ Fallback ----------------------------------------------------
   defp compile_expr(other, _),
@@ -252,8 +284,10 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
 
   defp compile_let_binding(
          {%Ast.FunctionCall{function: %Ast.Identifier{name: fname}, arguments: args}, val},
-         env) do
+         env
+       ) do
     params = args |> Enum.map(&compile_pattern(&1, env)) |> Enum.join(", ")
+
     """
     let #{sanitize_name(fname)} = (#{params}) => #{compile_expr(val, env)}
     """
@@ -265,15 +299,16 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
   # For now only identifiers & literals; complex patterns are handled
   # by runtime helpers (`match()` above).
   defp compile_pattern(%Ast.Identifier{name: n}, _), do: sanitize_name(n)
-  defp compile_pattern(%Ast.Literal{} = lit, env),   do: compile_expr(lit, env)
-  defp compile_pattern(%Ast.Wildcard{}, _),          do: "_"  # placeholder
+  defp compile_pattern(%Ast.Literal{} = lit, env), do: compile_expr(lit, env)
+  # placeholder
+  defp compile_pattern(%Ast.Wildcard{}, _), do: "_"
 
   # ──────────────────────────────────
   # Foreign import
   # ──────────────────────────────────
   def gen_foreign(%Ast.ForeignImport{module: m, function: f, alias: name, type_signature: ts}) do
     arity = count_params(ts.type)
-    args  = for i <- 1..arity, do: "arg#{i}"
+    args = for i <- 1..arity, do: "arg#{i}"
 
     """
     // foreign import #{m}.#{f}/#{arity}
@@ -283,5 +318,8 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
     """
   end
 
-  # count_params – same logic reused
+  defp count_params(%Nova.Compiler.Ast.ForAllType{vars: _, type: t}), do: count_params(t)
+  defp count_params(%Ast.BinaryOp{op: "->", right: r}), do: 1 + count_params(r)
+  defp count_params(_), do: 0
+
 end
