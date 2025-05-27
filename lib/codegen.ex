@@ -3,9 +3,8 @@ defmodule Nova.Compiler.CodeGen do
   First‑pass code generator that turns a parsed Nova `Ast.Module`
   into a valid Elixir module source string.
 
-  **NEW**: A compile‑time environment (`env`) is threaded through every
-  generator helper so we can influence how code is emitted.  The env is a map
-  with two keys:
+  A compile‑time environment (`env`) is threaded through every
+  generator helper:
 
     * `:namespace` – the Elixir module name we are currently generating.
     * `:generate_remote_calls` – when `true`, calls that would normally be
