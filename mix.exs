@@ -28,7 +28,8 @@ defmodule Nova3.MixProject do
       {:bandit, "~> 1.4"},
       {:cors_plug, "~> 3.0"},
       {:finch, "~> 0.19"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:hackney, "~> 1.9"}
     ]
   end
 end
