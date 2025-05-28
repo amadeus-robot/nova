@@ -301,5 +301,4 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
   defp count_params(%Nova.Compiler.Ast.ForAllType{vars: _, type: t}), do: count_params(t)
   defp count_params(%Ast.BinaryOp{op: "->", right: r}), do: 1 + count_params(r)
   defp count_params(_), do: 0
-
 end

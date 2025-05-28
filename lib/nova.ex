@@ -4,11 +4,12 @@ defmodule Nova.Application do
 
   @impl true
   def start(_type, _args) do
+    # if starting on the playground, gotta not start mcp services
+
     children = [
       # ─── Core domain processes (optional) ───────────────────────────
       {DynamicSupervisor, strategy: :one_for_one, name: MyAPI.DomainSupervisor},
-
-      # {MCPServer.TcpServer, 5000},
+      {MCPServer, [port: 5000]},
       {HierarchicalFunctionManager, []}
     ]
 
