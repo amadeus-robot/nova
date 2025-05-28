@@ -79,10 +79,6 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
 
     // --- prelude helpers (only once per file) ---------------------
     //   * placeholder for Effect.Console.log
-    export function log<T>(value: T): T {
-      trace("log", 1, 0, 0);            // AS built-in low-level logging
-      return value;
-    }
 
     // --- user code -----------------------------------------------
     #{body_src}
@@ -121,22 +117,6 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
     """
   end
 
-  defp compile_decl(
-         %Ast.ImportDeclaration{module: %Ast.Identifier{name: "Effect.Console"}, items: imps},
-         _env
-       ) do
-    # Only inject stub if log is imported
-    has_log? =
-      Enum.any?(imps, fn
-        %Ast.Identifier{name: "log"} -> true
-        "log" -> true
-        :log -> true
-        _ -> false
-      end)
-
-    if has_log?, do: "// Effect.Console.log already provided above", else: ""
-  end
-
   defp compile_decl(%Ast.FunctionDeclaration{} = fun, env), do: compile_fun(fun, env)
   defp compile_decl(%Ast.ForeignImport{} = fi, _env), do: gen_foreign(fi)
   defp compile_decl(_other, _env), do: ""
@@ -149,7 +129,7 @@ defmodule Nova.Compiler.CodeGenAssemblyScript do
     body_src = compile_expr(b, env) |> indent(2)
 
     """
-    export function #{sanitize_name(n)}(#{args}): any {   // TODO: type
+    export function #{sanitize_name(n)}(#{args}): void {   // TODO: type
     #{body_src}
     }
     """
