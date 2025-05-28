@@ -317,9 +317,6 @@ defmodule Nova.Compiler.CodeGen do
   defp compile_case_clause(%Ast.CaseClause{pattern: p, guard: g, body: b}, env),
     do: "#{compile_pattern(p, env)} when #{compile_expr(g, env)} -> #{compile_expr(b, env)}"
 
-  # ─────────────────────────────────────────────────────────────
-  # Patterns (env is only needed when they recurse into expressions)
-  # ─────────────────────────────────────────────────────────────
   defp compile_pattern(%Ast.Identifier{name: n}, _env), do: sanitize_name(n)
 
   defp compile_pattern(%Ast.QualifiedIdentifier{namespace: ns, name: n}, _env),

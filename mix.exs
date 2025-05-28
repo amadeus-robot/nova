@@ -30,7 +30,8 @@ defmodule Nova3.MixProject do
       {:finch, "~> 0.19"},
       {:jason, "~> 1.4"},
       {:hackney, "~> 1.9"},
-      {:mecp, git: "https://github.com/amadeus-robot/mcp"}
+      {:mecp, git: "https://github.com/amadeus-robot/mcp"},
+      {:exjsx, "~> 4.0.0"}
     ]
   end
 end
