@@ -32,6 +32,7 @@ defmodule Nova3.MixProject do
       {:hackney, "~> 1.9"},
       {:mecp, git: "https://github.com/amadeus-robot/mcp"},
       {:exjsx, "~> 4.0.0"}
+#      {:wasmex, "~> 0.11.2"}
     ]
   end
 end

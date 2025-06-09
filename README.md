@@ -5,8 +5,12 @@
 [![Hex docs](https://img.shields.io/badge/hex-docs-green)](https://hex.pm/packages/nova_lang)
 [![License](https://img.shields.io/github/license/nova-lang/nova.svg)](LICENSE)
 
-Nova brings ML-style type safety and Hindley–Milner inference to your chain of thought.  
-Think *PureScript-level guarantees* while thinking your code.
-
 ---
 
+* **Traditional IDEs will fade.** Humans will stop editing source files line-by-line and instead work at the level of tasks and objectives.
+
+* **Code rendering replaces manual coding.** Developers will declare a set of high-level goals and constraints.
+
+* **Think over the graph.**
+
+* **Finer granularity over edits.**
